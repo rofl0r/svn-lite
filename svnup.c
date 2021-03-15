@@ -30,6 +30,7 @@
 #include <sys/ioctl.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#include <sys/param.h> /* MAXNAMLEN */
 #include <sys/tree.h>
 
 #include <arpa/inet.h>
