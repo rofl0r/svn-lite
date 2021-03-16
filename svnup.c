@@ -27,6 +27,11 @@
  *
  */
 
+#ifndef PREFIX
+#define PREFIX "/usr/local"
+#endif
+#define CONF_FILE_LOC PREFIX "/etc/svnup.conf"
+
 #include <sys/ioctl.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
@@ -1318,7 +1323,7 @@ set_configuration_parameters(connector *connection, char *buffer, size_t length,
 /*
  * load_configuration
  *
- * Procedure that loads the section options from /usr/local/etc/svnup.conf
+ * Procedure that loads the section options from svnup.conf
  */
 
 static void
@@ -2070,7 +2075,7 @@ main(int argc, char **argv)
 	display_last_revision = file_count = command_count = 0;
 	buffer_full = f = f0 = length = port_override = 0;
 
-	configuration_file = strdup("/usr/local/etc/svnup.conf");
+	configuration_file = strdup(CONF_FILE_LOC);
 
 	file_max = BUFFER_UNIT;
 
