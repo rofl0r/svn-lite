@@ -2043,6 +2043,92 @@ usage(char *configuration_file)
 	exit(EXIT_FAILURE);
 }
 
+static void
+getopts_svnup(int argc, char **argv, char *configuration_file, connector *connection, int *display_last_revision)
+{
+	int port_override = 0, option, x;
+
+	if (argc < 2)
+		usage(configuration_file);
+
+	if (argv[1][0] == '-') {
+		if (argv[1][1] == 'V') {
+			fprintf(stdout, "svnup version %s\n", SVNUP_VERSION);
+			exit(EXIT_FAILURE);
+			}
+		else usage(configuration_file);
+	} else {
+		if (strncmp(argv[1], "default", 7) == 0)
+			errx(EXIT_FAILURE, "Invalid section.  Please use one defined in svnup.conf.");
+
+		load_configuration(connection, configuration_file, argv[1]);
+		optind = 2;
+	}
+
+	while ((option = getopt(argc, argv, "46Vfntb:h:k:l:o:p:r:v:")) != -1) {
+		switch (option) {
+			case '4':
+				connection->family = AF_INET;
+				break;
+			case '6':
+				connection->family = AF_INET6;
+				break;
+			case 'b':
+				x = (optarg[0] == '/' ? 1 : 0);
+				connection->branch = (char *)malloc(strlen(optarg) - x + 1);
+				memcpy(connection->branch, optarg + x, strlen(optarg) - x + 1);
+				break;
+			case 'f':
+				connection->extra_files = 1;
+				break;
+			case 'h':
+				connection->address = strdup(optarg);
+				break;
+			case 'k':
+				connection->path_work = strdup(optarg);
+				break;
+			case 'l':
+				connection->path_target = realloc(connection->path_target, strlen(optarg) + 2);
+				snprintf(connection->path_target, strlen(optarg) + 1, "%s", optarg);
+				break;
+			case 'n':
+				*display_last_revision = 1;
+				break;
+			case 'o':
+				port_override = strtol(optarg, (char **)NULL, 10);
+				break;
+			case 'p':
+				if (strncasecmp(optarg, "svn", 3) == 0) {
+					connection->protocol = SVN;
+					connection->port = 3690;
+				}
+
+				if (strncasecmp(optarg, "http", 4) == 0) {
+					connection->protocol = HTTP;
+					connection->port = 80;
+				}
+
+				if (strncasecmp(optarg, "https", 5) == 0) {
+					connection->protocol = HTTPS;
+					connection->port = 443;
+				}
+				break;
+			case 'r':
+				connection->revision = strtol(optarg, (char **)NULL, 10);
+				break;
+			case 't':
+				connection->trim_tree = 1;
+				break;
+			case 'v':
+				connection->verbosity = strtol(optarg, (char **)NULL, 10);
+				break;
+		}
+	}
+
+	if (port_override)
+		connection->port = port_override;
+}
+
 
 /*
  * main
@@ -2064,7 +2150,6 @@ main(int argc, char **argv)
 	int    b, *buffer_commands, buffer_full, buffers;
 	int    c, command_count, display_last_revision;
 	int    f, f0, fd, file_count, file_max, length;
-	int    option, port_override, x;
 
 	file = NULL;
 	buffers = -1;
@@ -2073,7 +2158,7 @@ main(int argc, char **argv)
 	new_buffer(&buffer, &buffer_commands, &buffers);
 
 	display_last_revision = file_count = command_count = 0;
-	buffer_full = f = f0 = length = port_override = 0;
+	buffer_full = f = f0 = length = 0;
 
 	configuration_file = strdup(CONF_FILE_LOC);
 
@@ -2098,85 +2183,7 @@ main(int argc, char **argv)
 	connection.family = AF_UNSPEC;
 	connection.protocol = HTTPS;
 
-	if (argc < 2)
-		usage(configuration_file);
-
-	if (argv[1][0] == '-') {
-		if (argv[1][1] == 'V') {
-			fprintf(stdout, "svnup version %s\n", SVNUP_VERSION);
-			exit(EXIT_FAILURE);
-			}
-		else usage(configuration_file);
-	} else {
-		if (strncmp(argv[1], "default", 7) == 0)
-			errx(EXIT_FAILURE, "Invalid section.  Please use one defined in svnup.conf.");
-
-		load_configuration(&connection, configuration_file, argv[1]);
-		optind = 2;
-	}
-
-	while ((option = getopt(argc, argv, "46Vfntb:h:k:l:o:p:r:v:")) != -1) {
-		switch (option) {
-			case '4':
-				connection.family = AF_INET;
-				break;
-			case '6':
-				connection.family = AF_INET6;
-				break;
-			case 'b':
-				x = (optarg[0] == '/' ? 1 : 0);
-				connection.branch = (char *)malloc(strlen(optarg) - x + 1);
-				memcpy(connection.branch, optarg + x, strlen(optarg) - x + 1);
-				break;
-			case 'f':
-				connection.extra_files = 1;
-				break;
-			case 'h':
-				connection.address = strdup(optarg);
-				break;
-			case 'k':
-				connection.path_work = strdup(optarg);
-				break;
-			case 'l':
-				connection.path_target = realloc(connection.path_target, strlen(optarg) + 2);
-				snprintf(connection.path_target, strlen(optarg) + 1, "%s", optarg);
-				break;
-			case 'n':
-				display_last_revision = 1;
-				break;
-			case 'o':
-				port_override = strtol(optarg, (char **)NULL, 10);
-				break;
-			case 'p':
-				if (strncasecmp(optarg, "svn", 3) == 0) {
-					connection.protocol = SVN;
-					connection.port = 3690;
-				}
-
-				if (strncasecmp(optarg, "http", 4) == 0) {
-					connection.protocol = HTTP;
-					connection.port = 80;
-				}
-
-				if (strncasecmp(optarg, "https", 5) == 0) {
-					connection.protocol = HTTPS;
-					connection.port = 443;
-				}
-				break;
-			case 'r':
-				connection.revision = strtol(optarg, (char **)NULL, 10);
-				break;
-			case 't':
-				connection.trim_tree = 1;
-				break;
-			case 'v':
-				connection.verbosity = strtol(optarg, (char **)NULL, 10);
-				break;
-		}
-	}
-
-	if (port_override)
-		connection.port = port_override;
+	getopts_svnup(argc, argv, configuration_file, &connection, &display_last_revision);
 
 	if (connection.path_work == NULL)
 		if ((connection.path_work = strdup("/var/db/svnup")) == NULL)
