@@ -1,11 +1,24 @@
 PROG= svnup
 SRCS= svnup.c
+OBJS= svnup.o
 
-LDADD= -lssl -lmd
+LDADD= -lssl -lcrypto
 
-WARNS= 6
+PREFIX=/usr/local
 
-MAN= svnup.1 svnup.conf.5
+-include config.mak
 
-.include <bsd.prog.mk>
+all: $(PROG)
 
+svnup.o: CPPFLAGS += -I.
+
+$(PROG): $(OBJS)
+	$(CC) $(CFLAGS) -o $@ $< $(LDFLAGS) $(LDADD)
+
+clean:
+	rm -f $(PROG) $(OBJS)
+
+install:
+	install -Dm 755 $(PROG) $(DESTDIR)$(PREFIX)/bin/$(PROG)
+
+.PHONY: all clean install
