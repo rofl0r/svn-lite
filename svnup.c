@@ -2016,30 +2016,30 @@ progress_indicator(connector *connection, char *path, int f, int file_count)
 static void
 usage(char *configuration_file)
 {
-	fprintf(stderr, "Usage: svnup <section> [options]\n\n");
-	fprintf(stderr, "  Please see %s for the list of <section> options.\n\n", configuration_file);
-	fprintf(stderr, "  Options:\n");
-	fprintf(stderr, "    -4  Use IPv4 addresses only.\n");
-	fprintf(stderr, "    -6  Use IPv6 addresses only.\n");
-	fprintf(stderr, "    -b  Override the specified section's Subversion branch.\n");
-	fprintf(stderr, "    -f  Display the local files that do not exist in the repository.\n");
-	fprintf(stderr, "    -h  Override the specified section's hostname or IP address.\n");
-	fprintf(stderr, "    -k  Override the location where known file lists are stored.\n");
-	fprintf(stderr, "    -l  Override the specified section's destination directory.\n");
-	fprintf(stderr, "    -n  Display the section's most recently downloaded revision number and exit.\n");
-	fprintf(stderr, "    -o  Override the specified section's default port.\n");
-	fprintf(stderr, "    -p  Override the specified section's protocol (svn, http, https).\n");
-	fprintf(stderr, "    -r  The revision number to retreive (defaults to the branch's\n");
-	fprintf(stderr, "          most recent revision if this option is not specified).\n");
-	fprintf(stderr, "    -t  Remove all local files that are not found in the repository.\n");
-	fprintf(stderr, "          Note: this will remove files in directories like /usr/ports/distfiles/\n");
-	fprintf(stderr, "          and /usr/src/sys/amd64/conf/.  Proceed with caution.\n");
-	fprintf(stderr, "    -v  How verbose the output should be (0 = no output, 1 = the default\n");
-	fprintf(stderr, "          normal output, 2 = also show a progress indicator, 3 = also show\n");
-	fprintf(stderr, "          command and response text plus command response parsing codes).\n");
-	fprintf(stderr, "    -V  Display svnup's version number and exit.\n");
-	fprintf(stderr, "\n");
-
+	fprintf(stderr,
+		"Usage: svnup <section> [options]\n\n"
+		"  Please see %s for the list of <section> options.\n\n"
+		"  Options:\n"
+		"    -4  Use IPv4 addresses only.\n"
+		"    -6  Use IPv6 addresses only.\n"
+		"    -b  Override the specified section's Subversion branch.\n"
+		"    -f  Display the local files that do not exist in the repository.\n"
+		"    -h  Override the specified section's hostname or IP address.\n"
+		"    -k  Override the location where known file lists are stored.\n"
+		"    -l  Override the specified section's destination directory.\n"
+		"    -n  Display the section's most recently downloaded revision number and exit.\n"
+		"    -o  Override the specified section's default port.\n"
+		"    -p  Override the specified section's protocol (svn, http, https).\n"
+		"    -r  The revision number to retreive (defaults to the branch's\n"
+		"          most recent revision if this option is not specified).\n"
+		"    -t  Remove all local files that are not found in the repository.\n"
+		"          Note: this will remove files in directories like /usr/ports/distfiles/\n"
+		"          and /usr/src/sys/amd64/conf/.  Proceed with caution.\n"
+		"    -v  How verbose the output should be (0 = no output, 1 = the default\n"
+		"          normal output, 2 = also show a progress indicator, 3 = also show\n"
+		"          command and response text plus command response parsing codes).\n"
+		"    -V  Display svnup's version number and exit.\n"
+		"\n", configuration_file);
 	exit(EXIT_FAILURE);
 }
 
