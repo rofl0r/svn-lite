@@ -1,4 +1,4 @@
-PROG= svnup
+PROG= svn
 SRCS= svnup.c
 OBJS= svnup.o
 

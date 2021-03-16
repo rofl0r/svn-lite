@@ -1,5 +1,6 @@
 /*-
  * Copyright (c) 2012-2019, John Mehr <jmehr@umn.edu>
+ * Copyright (c) 2021 rofl0r
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -55,6 +56,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <libgen.h>
 
 
 #define SVNUP_VERSION "1.08"
@@ -1204,6 +1206,26 @@ save_known_file_list(connector *connection, file_node **file, int file_count)
 }
 
 
+static int protocol_from_str(char* line, connector *connection) {
+	if (strncmp(line, "svn", 3) == 0) {
+		connection->protocol = SVN;
+		connection->port = 3690;
+	} else
+
+	if (strncmp(line, "https", 5) == 0) {
+		connection->protocol = HTTPS;
+		connection->port = 443;
+	} else
+
+	if (strncmp(line, "http", 4) == 0) {
+		connection->protocol = HTTP;
+		connection->port = 80;
+	} else
+		return 0;
+
+	return 1;
+}
+
 /*
  * set_configuration_parameters
  *
@@ -1272,21 +1294,7 @@ set_configuration_parameters(connector *connection, char *buffer, size_t length,
 
 			if (strstr(line, "protocol=") == line) {
 				line += 9;
-				if (strncmp(line, "svn", 3) == 0) {
-					connection->protocol = SVN;
-					connection->port = 3690;
-				}
-
-				if (strncmp(line, "http", 4) == 0) {
-					connection->protocol = HTTP;
-					connection->port = 80;
-				}
-
-				if (strncmp(line, "https", 5) == 0) {
-					connection->protocol = HTTPS;
-					connection->port = 443;
-				}
-
+				protocol_from_str(line, connection);
 				continue;
 			}
 
@@ -2129,6 +2137,72 @@ getopts_svnup(int argc, char **argv, char *configuration_file, connector *connec
 		connection->port = port_override;
 }
 
+static void
+usage_svn(char *arg0) {
+	fprintf(stderr,
+		"Usage: svn command [options]\n\n"
+		"commands:\n"
+		"checkout/co [options] URL [PATH] - checkout repository.\n"
+		"   known options: -r/--revision NUMBER\n"
+		"   if PATH is omitted, basename of URL will be used as destination\n"
+	);
+	exit(EXIT_FAILURE);
+}
+
+static void
+getopts_svn(int argc, char **argv, connector *connection)
+{
+	int mode = 0, a = 1;
+	if(argc < 2) usage_svn(argv[0]);
+	if(!strcmp(argv[a], "checkout") || !strcmp(argv[a], "co"))
+		mode = 1;
+	else
+		usage(argv[0]);
+	++a;
+	if(!strcmp(argv[a], "-r") || !strcmp(argv[a], "--revision")) {
+		++a;
+		if(a >= argc) usage(argv[0]);
+		connection->revision = strtol(argv[a++], (char **)NULL, 10);
+	}
+	if(a >= argc) usage(argv[0]);
+	char *p = strchr(argv[a], ':'), *q, *dst;
+	if(!p || p[1] != '/' || p[2] != '/')
+		return usage(argv[0]);
+	*p = 0;
+	if(!protocol_from_str(argv[a], connection)) {
+		errx(EXIT_FAILURE, "unknown protocol %s\n", argv[a]);
+	}
+	*p = ':';
+	p += 3;
+	if(q = strchr(p, ':')) {
+		connection->port = atoi(q+1);
+		*q = 0;
+		connection->address = strdup(p);
+		*q = ':';
+	} else if(q = strchr(p, '/')) {
+		*q = 0;
+		connection->address = strdup(p);
+		*q = '/';
+	}
+	if(q && *q == ':') q = strchr(q, '/');
+	if(!q) {
+		err(EXIT_FAILURE, "expected '/' in URL!");
+	}
+	p = ++q;
+	connection->branch = strdup(p);
+	if(++a >= argc) {
+		dst = basename(connection->branch);
+	} else
+		dst = argv[a];
+	connection->path_target = strdup(dst);
+
+	char buf[PATH_MAX];
+	snprintf(buf, sizeof buf, "%s/.svnup.tmp", dst);
+
+	connection->path_work = strdup(buf);
+
+}
+
 
 /*
  * main
@@ -2183,7 +2257,10 @@ main(int argc, char **argv)
 	connection.family = AF_UNSPEC;
 	connection.protocol = HTTPS;
 
-	getopts_svnup(argc, argv, configuration_file, &connection, &display_last_revision);
+	if(!strcmp(basename(argv[0]), "svn"))
+		getopts_svn(argc, argv, &connection);
+	else
+		getopts_svnup(argc, argv, configuration_file, &connection, &display_last_revision);
 
 	if (connection.path_work == NULL)
 		if ((connection.path_work = strdup("/var/db/svnup")) == NULL)
@@ -2197,8 +2274,8 @@ main(int argc, char **argv)
 
 	/* Create the destination directories if they doesn't exist. */
 
-	create_directory(connection.path_work);
 	create_directory(connection.path_target);
+	create_directory(connection.path_work);
 
 	/* Load the list of known files and MD5 signatures, if they exist. */
 
@@ -2683,3 +2760,4 @@ main(int argc, char **argv)
 
 	return (0);
 }
+
