@@ -2090,7 +2090,7 @@ main(int argc, char **argv)
 	connection.socket_descriptor = connection.port = 0;
 	connection.trim_tree = connection.extra_files = connection.known_files_size = 0;
 	connection.verbosity = 1;
-	connection.family = AF_INET;
+	connection.family = AF_UNSPEC;
 	connection.protocol = HTTPS;
 
 	if (argc < 2)
