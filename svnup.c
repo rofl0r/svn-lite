@@ -1563,7 +1563,7 @@ process_report_svn(connector *connection, char *command, file_node ***file, int 
 					if (connection->verbosity)
 						printf(" + %s\n", temp_path);
 
-					if (mkdir(temp_path, 0755))
+					if (mkdir(temp_path, 0755) && errno != EEXIST)
 						err(EXIT_FAILURE, "Cannot create target directory");
 				}
 
@@ -1691,7 +1691,7 @@ process_report_http(connector *connection, file_node ***file, int *file_count, i
 				if (remove(temp_buffer) != 0)
 					err(EXIT_FAILURE, "Please remove %s manually and restart svnup", temp_buffer);
 */
-		if(mkdir(temp_buffer, 0755))
+		if(mkdir(temp_buffer, 0755) && errno != EEXIST)
 			err(EXIT_FAILURE, "failed to create directory %s", temp_buffer);
 		free(value);
 		start++;
