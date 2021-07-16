@@ -2241,7 +2241,7 @@ getopts_svn(int argc, char **argv, connector *connection)
 	snprintf(buf, sizeof buf, "%s/.svnup.tmp", dst);
 
 	connection->path_work = strdup(buf);
-
+	connection->trim_tree = 1;
 }
 
 
