@@ -1213,12 +1213,13 @@ save_known_file_list(connector *connection, file_node **file, int file_count)
 	for (x = 0; x < file_count; x++) {
 		write(fd, file[x]->md5, strlen(file[x]->md5));
 		write(fd, "\t", 1);
-		write(fd, file[x]->path, strlen(file[x]->path));
+		char* ftmp = strip_rev_root_stub(connection, file[x]->path);
+		write(fd, ftmp, strlen(ftmp));
 		write(fd, "\n", 1);
 
 		/* If the file exists in the red-black trees, remove it. */
 
-		find.path = file[x]->path;
+		find.path = ftmp;
 
 		if ((found = RB_FIND(tree_known_files, &known_files, &find)) != NULL)
 			tree_node_free(RB_REMOVE(tree_known_files, &known_files, found));
