@@ -2733,7 +2733,9 @@ main(int argc, char **argv)
 
 	/* Print/prune any local files left. */
 
-	RB_FOREACH(data, tree_local_files, &local_files) {
+	for (data = RB_MIN(tree_local_files, &local_files); data != NULL; data = next) {
+		next = RB_NEXT(tree_local_files, head, data);
+
 		if (connection.trim_tree) {
 			if (strncmp("/.svnversion", data->path, 12)) {
 				prune(&connection, data->path);
