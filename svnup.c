@@ -2723,11 +2723,13 @@ main(int argc, char **argv)
 		if ((found = RB_FIND(tree_local_files, &local_files, data)) != NULL)
 			tree_node_free(RB_REMOVE(tree_local_files, &local_files, found));
 
-		if (strncmp(svn_version_path, data->path, strlen(svn_version_path)))
+		if (	!strncmp(svn_version_path, data->path, strlen(svn_version_path)) ||
+			!strncmp(connection.path_work, data->path, strlen(connection.path_work)))
+		; else
 			prune(&connection, data->path);
 
 		tree_node_free(RB_REMOVE(tree_known_files, &known_files, data));
-		}
+	}
 
 	if (connection.verbosity > 1)
 		printf("\r\e[0K\r");
@@ -2738,9 +2740,12 @@ main(int argc, char **argv)
 		next = RB_NEXT(tree_local_files, head, data);
 
 		if (connection.trim_tree) {
-			if (strncmp("/.svnversion", data->path, 12)) {
+			char buf[1024];
+			snprintf(buf, sizeof buf, "%s%s", connection.path_target, data->path);
+			if (	!strcmp(svn_version_path, buf) ||
+				!strncmp(connection.path_work, buf, strlen(connection.path_work)))
+			; else
 				prune(&connection, data->path);
-			}
 		} else {
 			if (connection.extra_files)
 				fprintf(stderr, " * %s%s\n", connection.path_target, data->path);
