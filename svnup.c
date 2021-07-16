@@ -2443,8 +2443,12 @@ main(int argc, char **argv)
 
 			connection.root = strdup(path);
 
-			if ((path = strstr(connection.branch, connection.root)))
-				path += strlen(connection.root) + 1;
+			if ((path = strstr(connection.branch, connection.root))) {
+				if(strlen(connection.branch) == strlen(connection.root))
+					path = "";
+				else
+					path += strlen(connection.root) + 1;
+			}
 			else errx(EXIT_FAILURE, "Cannot find SVN Repository Trunk.");
 
 			connection.trunk = strdup(path);
