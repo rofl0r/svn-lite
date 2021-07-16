@@ -57,6 +57,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <libgen.h>
+#include <assert.h>
 
 
 #define SVNUP_VERSION "1.08"
@@ -142,6 +143,30 @@ static void		 parse_additional_attributes(connector *, char *, char *, file_node
 static void		 get_files(connector *, char *, char *, file_node **, int, int);
 static void		 progress_indicator(connector *connection, char *, int, int);
 static void		 usage(char *);
+
+static char*
+http_extract_header_value(char* response, const char* name, char* buf, size_t buflen)
+{
+	char *line, *p;
+	line = p = response;
+	size_t l = strlen(name);
+	while(1) {
+		p = strstr(p, "\r\n");
+		if(!p) break;
+		if(!strncmp(line, name, l) && line[l] == ':' && line[l+1] == ' ') {
+			intptr_t ll = p - line - l - 2;
+			if(ll > 0 && ll+1 < buflen) {
+				memcpy(buf, line + l + 2, ll);
+				buf[ll] = 0;
+				return buf;
+			}
+			return 0;
+		}
+		p += 2;
+		line = p;
+	}
+	return 0;
+}
 
 /*
  * md5sum
@@ -2433,26 +2458,21 @@ main(int argc, char **argv)
 				connection.revision = strtol(value + 18, (char **)NULL, 10);
 		}
 
-		if ((path = strstr(connection.response, "SVN-Repository-Root: ")) == NULL)
+		char buf[1024];
+		if(!http_extract_header_value(connection.response, "SVN-Repository-Root", buf, sizeof  buf)) {
 			errx(EXIT_FAILURE, "Cannot find SVN Repository Root.");
-		else {
-			path += 22;
-			value = strstr(path, "\r\n");
-			if (value) *value = '\0';
-			else errx(EXIT_FAILURE, "Cannot find SVN Repository Root.");
-
-			connection.root = strdup(path);
-
-			if ((path = strstr(connection.branch, connection.root))) {
-				if(strlen(connection.branch) == strlen(connection.root))
-					path = "";
-				else
-					path += strlen(connection.root) + 1;
-			}
-			else errx(EXIT_FAILURE, "Cannot find SVN Repository Trunk.");
-
-			connection.trunk = strdup(path);
 		}
+		assert(buf[0] == '/');
+		connection.root = strdup(buf + 1 /* skip leading '/' */);
+		if ((path = strstr(connection.branch, connection.root))) {
+			if(strlen(connection.branch) == strlen(connection.root))
+				path = "";
+			else
+				path += strlen(connection.root) + 1;
+		}
+		else errx(EXIT_FAILURE, "Cannot find SVN Repository Trunk.");
+
+		connection.trunk = strdup(path);
 	}
 
 	if (connection.verbosity)
