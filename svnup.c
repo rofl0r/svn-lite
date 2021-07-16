@@ -78,6 +78,7 @@ typedef struct {
 	char     *root;
 	char     *trunk;
 	char     *branch;
+	char     *rev_root_stub; 
 	char     *path_target;
 	char     *response;
 	size_t    response_length;
@@ -166,6 +167,16 @@ http_extract_header_value(char* response, const char* name, char* buf, size_t bu
 		line = p;
 	}
 	return 0;
+}
+
+static char* strip_rev_root_stub(connector *connection, char* path) {
+	char *tmp = path;
+	if(connection->rev_root_stub && strstr(path, connection->rev_root_stub) == path) {
+		tmp += strlen(connection->rev_root_stub);
+		if(*tmp == '/')++tmp;
+		while(isdigit(*tmp))++tmp;
+	}
+	return tmp;
 }
 
 /*
@@ -1669,7 +1680,8 @@ process_report_http(connector *connection, file_node ***file, int *file_count, i
 
 	while ((start = strstr(start, "<S:add-directory")) && (start < end)) {
 		value = parse_xml_value(start, end, "D:href");
-		temp = strstr(value, connection->trunk) + strlen(connection->trunk);
+		char *ptmp = strip_rev_root_stub(connection, value);
+		temp = strstr(ptmp, connection->trunk) + strlen(connection->trunk);
 		snprintf(temp_buffer, BUFFER_UNIT, "%s%s", connection->path_target, temp);
 
 		/* If a file exists with the same name, try and remove it first. */
@@ -1912,11 +1924,13 @@ get_files(connector *connection, char *command, char *path_target, file_node **f
 		if (file[x]->download == 0)
 			continue;
 
+		char *tmp = strip_rev_root_stub(connection, file[x]->path);
+
 		snprintf(file_path_target,
 			BUFFER_UNIT,
 			"%s%s",
 			path_target,
-			file[x]->path);
+			tmp);
 
 		/* Isolate the file from the response stream. */
 
@@ -2274,6 +2288,7 @@ main(int argc, char **argv)
 	connection.address = connection.branch = connection.path_target = NULL;
 	connection.path_work = connection.known_files = NULL;
 	connection.trunk = connection.root = NULL;
+	connection.rev_root_stub = NULL;
 	connection.known_files_old = connection.known_files_new = NULL;
 	connection.ssl = NULL;
 	connection.ctx = NULL;
@@ -2474,6 +2489,11 @@ main(int argc, char **argv)
 		else errx(EXIT_FAILURE, "Cannot find SVN Repository Trunk.");
 
 		connection.trunk = strdup(path);
+
+		if(http_extract_header_value(connection.response, "SVN-Rev-Root-Stub", buf, sizeof  buf)) {
+			assert(buf[0] == '/');
+			connection.rev_root_stub = strdup(buf);
+		}
 	}
 
 	if (connection.verbosity)
