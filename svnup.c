@@ -2565,7 +2565,7 @@ main(int argc, char **argv)
 				BUFFER_UNIT,
 				"%s%s",
 				connection.path_target,
-				file[f]->path);
+				strip_rev_root_stub(&connection, file[f]->path));
 
 			if (confirm_md5(file[f]->md5, temp_buffer)) {
 				file[f]->download = 1;
