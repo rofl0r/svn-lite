@@ -1643,15 +1643,16 @@ process_report_http(connector *connection, file_node ***file, int *file_count, i
 
 	snprintf(footer, sizeof footer,
 		"<S:update-report xmlns:S=\"svn:\">"
-		"<S:src-path>/%s</S:src-path>"
-		"<S:target-revision>%d</S:target-revision>"
-		"<S:depth>unknown</S:depth>"
-		"<S:entry rev=\"%d\" depth=\"infinity\" start-empty=\"true\"></S:entry>"
+			"<S:src-path>/%s</S:src-path>"
+			"<S:target-revision>%d</S:target-revision>"
+			"<S:depth>unknown</S:depth>"
+			"<S:entry rev=\"%d\" depth=\"infinity\" start-empty=\"true\"></S:entry>"
 		"</S:update-report>\r\n"
 		,
 		connection->branch,
 		connection->revision,
-		connection->revision);
+		connection->revision
+	);
 
 	snprintf(command,
 		COMMAND_BUFFER,
