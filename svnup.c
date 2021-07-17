@@ -2257,7 +2257,7 @@ main(int argc, char **argv)
 	struct stat        local;
 	struct tree_node  *data, *found, *next;
 	file_node        **file;
-	connector          connection;
+	connector          connection = {0};
 
 	char **buffer, command[COMMAND_BUFFER + 1], *configuration_file, *end;
 	char  *md5, *path, *start, temp_buffer[BUFFER_UNIT], *value;
