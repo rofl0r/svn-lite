@@ -660,12 +660,18 @@ process_command_svn(connector *connection, const char *command, unsigned int exp
 				if (count == 0) {
 					group++;
 					check++;
-					if (*check == ' ')
-						*check = '\0';
+					if (check < input + bytes_read) {
+						if (*check == ' ')
+							*check = '\0';
 
-					if (*check != '\0')
-						fprintf(stderr, "oops: %d %c\n", *check, *check);
+						if (*check != '\0')
+							fprintf(stderr, "oops: %d %c\n", *check, *check);
+
+						char *q = check + 1;
+						while(q < input + bytes_read && *q != '(') ++q;
+						check = q-1;
 					}
+				}
 			}
 			while (++check < input + bytes_read);
 		}
