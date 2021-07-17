@@ -652,7 +652,7 @@ process_command_svn(connector *connection, const char *command, unsigned int exp
 		if ((expected_bytes == 0) && (connection->verbosity > 3))
 			fprintf(stderr, ". = %d %d\n", group, connection->response_groups);
 
-		if (group == connection->response_groups)
+		if (group >= connection->response_groups)
 			ok = 1;
 
 		if (position == expected_bytes)
