@@ -1635,16 +1635,23 @@ process_report_http(connector *connection, file_node ***file, int *file_count, i
 {
 	file_node   *this_file;
 	struct tree_node  *found, find;
-	int          revision_length, x;
 	char         command[COMMAND_BUFFER + 1], *d, *end, *href, *md5, *path;
 	char        *start, *temp, temp_buffer[BUFFER_UNIT], *value;
+	char footer[512];
 
 	connection->response_groups = 2;
 
-	revision_length = 1;
-	x = connection->revision;
-	while ((int)(x /= 10) > 0)
-		revision_length++;
+	snprintf(footer, sizeof footer,
+		"<S:update-report xmlns:S=\"svn:\">"
+		"<S:src-path>/%s</S:src-path>"
+		"<S:target-revision>%d</S:target-revision>"
+		"<S:depth>unknown</S:depth>"
+		"<S:entry rev=\"%d\" depth=\"infinity\" start-empty=\"true\"></S:entry>"
+		"</S:update-report>\r\n"
+		,
+		connection->branch,
+		connection->revision,
+		connection->revision);
 
 	snprintf(command,
 		COMMAND_BUFFER,
@@ -1657,20 +1664,13 @@ process_report_http(connector *connection, file_node ***file, int *file_count, i
 		"DAV: http://subversion.tigris.org/xmlns/dav/svn/log-revprops\r\n"
 		"Transfer-Encoding: chunked\r\n\r\n"
 		"%lx\r\n"
-		"<S:update-report xmlns:S=\"svn:\">"
-		"<S:src-path>/%s</S:src-path>"
-		"<S:target-revision>%d</S:target-revision>"
-		"<S:depth>unknown</S:depth>"
-		"<S:entry rev=\"%d\" depth=\"infinity\" start-empty=\"true\"></S:entry>"
-		"</S:update-report>\r\n"
+		"%s"
 		"\r\n0\r\n\r\n",
 		connection->root,
 		connection->address,
 		SVNUP_VERSION,
-		strlen(connection->branch) + revision_length + revision_length + 205,
-		connection->branch,
-		connection->revision,
-		connection->revision);
+		strlen(footer),
+		footer);
 
 	process_command_http(connection, command);
 
