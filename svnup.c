@@ -628,7 +628,31 @@ process_command_svn(connector *connection, const char *command, unsigned int exp
 				*check++ = '\0';
 
 			do {
-				count += (*check == '(' ? 1 : (*check == ')' ? -1 : 0));
+
+				if (*check == ')')
+					--count;
+				else if(*check == '(') {
+					/* trying to skip size-annotated block, which in case of
+					   a commit message may contain unbalanced parens */
+					int skip = 0;
+					char *q, *p = check+1, *e = input + bytes_read;
+					if(p+2 < e && p[0] == ' ' && isdigit(p[1])) {
+						q = p+1;
+						while(q < e && isdigit(*q)) ++q;
+						if(q < e && *q == ':') {
+							skip = atoi(p)+1;
+							check = q;
+						}
+					}
+					if(skip) {
+						if(check+skip < input + bytes_read) {
+							check += skip;
+						} else if (connection->verbosity > 3) {
+							fprintf(stderr, "couldn't skip %d bytes", skip);
+						}
+					}
+					++count;
+				}
 
 				if (connection->verbosity > 3)
 					fprintf(stderr, "%d", count);
