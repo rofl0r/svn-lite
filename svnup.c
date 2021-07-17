@@ -78,7 +78,7 @@ typedef struct {
 	char     *root;
 	char     *trunk;
 	char     *branch;
-	char     *rev_root_stub; 
+	char     *rev_root_stub;
 	char     *path_target;
 	char     *response;
 	size_t    response_length;
