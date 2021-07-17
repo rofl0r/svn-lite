@@ -74,6 +74,9 @@ typedef struct {
 	char     *address;
 	uint16_t  port;
 	uint32_t  revision;
+	char     *commit_author;
+	char     *commit_date;
+	char     *commit_msg;
 	int       family;
 	char     *root;
 	char     *trunk;
@@ -144,6 +147,17 @@ static void		 parse_additional_attributes(connector *, char *, char *, file_node
 static void		 get_files(connector *, char *, char *, file_node **, int, int);
 static void		 progress_indicator(connector *connection, char *, int, int);
 static void		 usage(char *);
+
+/* turn svn date string like "2020-11-10T09:23:51.711212Z" into "2020-11-10 09:23:51" */
+static char* sanitize_svn_date(char *date) {
+	char *temp = temp;
+	temp = strchr(date, 'T');
+	*temp++ = ' ';
+	temp = strchr(temp, '.');
+	*temp = 'Z';
+	*temp = 0;
+	return temp;
+}
 
 static char*
 http_extract_header_value(char* response, const char* name, char* buf, size_t buflen)
@@ -1652,6 +1666,123 @@ process_report_svn(connector *connection, char *command, file_node ***file, int 
 	free(buffer);
 }
 
+static char* craft_http_packet(char *host, char* url, char* verb, char* footer, char* command) {
+	snprintf(command,
+		COMMAND_BUFFER,
+		"%s %s HTTP/1.1\r\n"
+		"Host: %s\r\n"
+		"User-Agent: svnup-%s\r\n"
+		"Content-Type: text/xml\r\n"
+		"DAV: http://subversion.tigris.org/xmlns/dav/svn/depth\r\n"
+		"DAV: http://subversion.tigris.org/xmlns/dav/svn/mergeinfo\r\n"
+		"DAV: http://subversion.tigris.org/xmlns/dav/svn/log-revprops\r\n"
+		"Transfer-Encoding: chunked\r\n\r\n"
+		"%lx\r\n"
+		"%s"
+		"\r\n0\r\n\r\n",
+		verb, url, host,
+		SVNUP_VERSION,
+		strlen(footer),
+		footer);
+	return command;
+}
+
+/* expects pointer to a string like "( 6: foobar )", puts "foobar" into saveloc (heap)
+   returns pointer to after ')' */
+static char* extract_svn_string_from_group(char* data, char** saveloc) {
+	char *p = data;
+	assert(*p == '(');
+	++p;
+	assert(*p == ' ');
+	++p;
+	assert(isdigit(*p));
+	int n = atoi(p);
+	while(isdigit(*p))++p;
+	assert(*p == ':');
+	++p;
+	*saveloc = malloc(n+1);
+	memcpy(*saveloc, p, n);
+	(*saveloc)[n] = 0;
+	p += n + 1;
+	assert(*p == ')');
+	return ++p;
+}
+
+
+static void process_log_svn(connector *connection) {
+	char command[COMMAND_BUFFER + 1], *start, *end;
+
+	snprintf(command, COMMAND_BUFFER,
+		 "( log ( ( 0: ) ( %d ) ( %d ) false false 0 false revprops"
+		 " ( 10:svn:author 8:svn:date 7:svn:log ) ) ) ",
+		 connection->revision, connection->revision);
+
+	connection->response_groups = 3;
+	process_command_svn(connection, command, 0);
+	start = connection->response;
+	end = connection->response + connection->response_length;
+	if (check_command_success(connection->protocol, &start, &end))
+		errx(EXIT_FAILURE, "couldn't get log");
+
+	char buf[32], *p, *date;
+	snprintf(buf, sizeof buf, " %d ( ", connection->revision);
+	p = strstr(start, buf);
+	if(!p) return;
+
+	p += strlen(buf)-2;
+
+	p = extract_svn_string_from_group(p, &connection->commit_author);
+	assert(*p == ' ');
+	++p;
+
+	p = extract_svn_string_from_group(p, &connection->commit_date);
+	assert(*p == ' ');
+	++p;
+
+	p = extract_svn_string_from_group(p, &connection->commit_msg);
+	assert(*p == ' ');
+
+	sanitize_svn_date(connection->commit_date);
+}
+
+static void process_log_http(connector *connection) {
+	char command[COMMAND_BUFFER + 1], footer[1024], url[512];
+
+	snprintf(url, sizeof url,
+		"%s/%d",
+		connection->rev_root_stub,
+		connection->revision
+	);
+	snprintf(footer, sizeof footer,
+		"<S:log-report xmlns:S=\"svn:\">"
+			"<S:start-revision>%d</S:start-revision>"
+			"<S:end-revision>%d</S:end-revision>"
+			"<S:revprop>svn:author</S:revprop>"
+			"<S:revprop>svn:date</S:revprop>"
+			"<S:revprop>svn:log</S:revprop>"
+			"<S:path></S:path>"
+			"<S:encode-binary-props></S:encode-binary-props>"
+		"</S:log-report>\r\n"
+		,
+		connection->revision,
+		connection->revision
+	);
+
+	craft_http_packet(connection->address, url, "REPORT", footer, command);
+	connection->response_groups = 2;
+
+	process_command_http(connection, command);
+
+	char *start = connection->response,
+	     *end = start + connection->response_length;
+	start = strstr(start, "xml version=");
+	if(!start) start = connection->response;
+
+	connection->commit_author = parse_xml_value(start, end, "D:creator-displayname");
+	connection->commit_date   = parse_xml_value(start, end, "S:date");
+	connection->commit_msg    = parse_xml_value(start, end, "D:comment");
+	sanitize_svn_date(connection->commit_date);
+}
 
 /*
  * process_report_http
@@ -1684,24 +1815,10 @@ process_report_http(connector *connection, file_node ***file, int *file_count, i
 		connection->revision
 	);
 
-	snprintf(command,
-		COMMAND_BUFFER,
-		"REPORT /%s/!svn/me HTTP/1.1\r\n"
-		"Host: %s\r\n"
-		"User-Agent: svnup-%s\r\n"
-		"Content-Type: text/xml\r\n"
-		"DAV: http://subversion.tigris.org/xmlns/dav/svn/depth\r\n"
-		"DAV: http://subversion.tigris.org/xmlns/dav/svn/mergeinfo\r\n"
-		"DAV: http://subversion.tigris.org/xmlns/dav/svn/log-revprops\r\n"
-		"Transfer-Encoding: chunked\r\n\r\n"
-		"%lx\r\n"
-		"%s"
-		"\r\n0\r\n\r\n",
-		connection->root,
-		connection->address,
-		SVNUP_VERSION,
-		strlen(footer),
-		footer);
+	char url[256];
+	snprintf(url, sizeof url, "/%s/!svn/me", connection->root);
+
+	craft_http_packet(connection->address, url, "REPORT", footer, command);
 
 	process_command_http(connection, command);
 
@@ -2470,6 +2587,8 @@ main(int argc, char **argv)
 				"Remote path %s is not a repository directory.\n%s",
 				connection.branch,
 				connection.response);
+
+		process_log_svn(&connection);
 	}
 
 	if (connection.protocol >= HTTP) {
@@ -2526,6 +2645,8 @@ main(int argc, char **argv)
 			assert(buf[0] == '/');
 			connection.rev_root_stub = strdup(buf);
 		}
+
+		if(connection.rev_root_stub) process_log_http(&connection);
 	}
 
 	if (connection.verbosity)
