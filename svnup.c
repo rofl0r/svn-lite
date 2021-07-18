@@ -1732,10 +1732,15 @@ static void process_log_svn(connector *connection) {
 		 " ( 10:svn:author 8:svn:date 7:svn:log ) ) ) ",
 		 connection->revision, connection->revision);
 
-	connection->response_groups = 3;
+	connection->response_groups = 2; /* 3 on success, 2 on error */
 	process_command_svn(connection, command, 0);
 	start = connection->response;
 	end = connection->response + connection->response_length;
+
+	char* group2 = connection->response + strlen(connection->response) +1;
+	if(group2 < end && strstr(group2, "done ( failure ( ( ") == group2)
+		errx(EXIT_FAILURE, "%s", group2 + sizeof("done ( failure ( ( ")-1);
+
 	if (check_command_success(connection->protocol, &start, &end))
 		errx(EXIT_FAILURE, "couldn't get log");
 
