@@ -2353,15 +2353,19 @@ usage_svn(char *arg0) {
 	fprintf(stderr,
 		"Usage: svn command [options] [args]\n\n"
 		"commands:\n\n"
-		"info [options] TARGET - print information about TARGET.\n"
-		"   known options: -r/--revision NUMBER\n"
+		"info [options] TARGET\n"
+		"   print some information about TARGET.\n"
 		"   TARGET may either be an URL or a local directory.\n\n"
-		"log [options] TARGET - print commit log of TARGET\n"
-		"   known options: -r/--revision NUMBER\n"
+		"log [options] TARGET\n"
+		"   print commit log of TARGET\n"
 		"   TARGET may either be an URL or a local directory.\n\n"
-		"checkout/co [options] URL [PATH] - checkout repository.\n"
-		"   known options: -r/--revision NUMBER\n"
+		"checkout/co [options] URL [PATH]\n"
+		"   checkout repository (equivalent to git clone/git pull).\n"
 		"   if PATH is omitted, basename of URL will be used as destination\n"
+		"\n"
+		"options applicable to all commands:\n"
+		"   -r or --revision   NUMBER (default: 0)\n"
+		"   -v or --verbosity  NUMBER (default: 1)\n"
 	);
 	exit(EXIT_FAILURE);
 }
@@ -2404,13 +2408,22 @@ getopts_svn(int argc, char **argv, connector *connection)
 	else
 		usage_svn(argv[0]);
 	++a;
-	if(has_revision_option(connection->job) &&
-	   !strcmp(argv[a], "-r") || !strcmp(argv[a], "--revision")) {
+	while(1) {
+		int opt = 0;
+		if(!strcmp(argv[a], "-r") || !strcmp(argv[a], "--revision"))
+			opt = 1;
+		else if(!strcmp(argv[a], "-v") || !strcmp(argv[a], "--verbosity"))
+			opt = 2;
+		if(!opt) break;
+		if(opt == 1 && !has_revision_option(connection->job))
+			usage_svn(argv[0]);
 		++a;
 		if(a >= argc) usage_svn(argv[0]);
-		connection->revision = strtol(argv[a++], (char **)NULL, 10);
+		int n = atoi(argv[a++]);
+		if(opt == 1) connection->revision = n;
+		else if(opt == 2) connection->verbosity = n;
+		if(a >= argc) usage_svn(argv[0]);
 	}
-	if(a >= argc) usage_svn(argv[0]);
 
 	char *p = protocol_check(argv[a], connection), *q, *dst;
 	if(connection->job == SVN_CO && connection->protocol == NONE)
