@@ -3020,6 +3020,9 @@ main(int argc, char **argv)
 		next = RB_NEXT(tree_local_files, head, data);
 
 		if (connection.trim_tree) {
+			/* exempt .git/ from being removed, as it may be used by svn2git tool */
+			if(!strncmp(data->path, "/.git/", 6)) goto no_prune;
+
 			char buf[1024];
 			snprintf(buf, sizeof buf, "%s%s", connection.path_target, data->path);
 			if (strncmp(connection.path_work, buf, strlen(connection.path_work)))
@@ -3029,6 +3032,7 @@ main(int argc, char **argv)
 				fprintf(stderr, " * %s%s\n", connection.path_target, data->path);
 		}
 
+	no_prune:;
 		tree_node_free(RB_REMOVE(tree_local_files, &local_files, data));
 	}
 
@@ -3040,7 +3044,10 @@ main(int argc, char **argv)
 	for (data = RB_MAX(tree_local_directories, &local_directories); data != NULL; data = next) {
 		next = RB_PREV(tree_local_directories, head, data);
 
-		if (rmdir(data->path) == 0)
+		char buf[1024];
+		snprintf(buf, sizeof buf, "%s/.git/", connection.path_target);
+
+		if (strncmp(data->path, buf, strlen(buf)) && rmdir(data->path) == 0)
 			fprintf(stderr, " = %s\n", data->path);
 
 		tree_node_free(RB_REMOVE(tree_local_directories, &local_directories, data));
