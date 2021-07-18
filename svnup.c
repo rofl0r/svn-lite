@@ -576,8 +576,15 @@ check_command_success(int protocol, char **start, char **end)
 		}
 	}
 
-	if (fail)
-		fprintf(stderr, "\nCommand Failure: %s\n", response);
+	if (fail) {
+		if(protocol == SVN || !strstr(response, "xml version="))
+			fprintf(stderr, "\nCommand Failure: %s\n", response);
+		else {
+			char *ec = parse_xml_value(*start, *end, "m:human-readable");
+			if(ec) { fprintf(stderr, "\n%s\n", ec); free(ec); }
+			else fprintf(stderr, "\nCommand Failure: %s\n", response);
+		}
+	}
 
 	return (fail);
 }
