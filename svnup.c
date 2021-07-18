@@ -2343,6 +2343,7 @@ getopts_svnup(int argc, char **argv, char *configuration_file, connector *connec
 static void
 usage_svn(char *arg0) {
 	fprintf(stderr,
+		"svn-lite version %s by John Mehr & rofl0r\n\n"
 		"Usage: svn command [options] [args]\n\n"
 		"commands:\n\n"
 		"info [options] TARGET\n"
@@ -2358,6 +2359,7 @@ usage_svn(char *arg0) {
 		"options applicable to all commands:\n"
 		"   -r or --revision   NUMBER (default: 0)\n"
 		"   -v or --verbosity  NUMBER (default: 1)\n"
+		, SVNUP_VERSION
 	);
 	exit(EXIT_FAILURE);
 }
