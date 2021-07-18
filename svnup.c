@@ -2464,13 +2464,39 @@ static void write_info_or_log(connector *connection) {
 		memset(deco, '-', 72);
 		deco[72] = 0;
 		fprintf(stdout, "%s\n", deco);
-		fprintf(stdout, "r%u | %s | %s |\n\n", connection->revision, connection->commit_author, connection->commit_date);
-		fprintf(stdout, "%s\n%s\n", connection->commit_msg, deco);
+		/* some broken svn repos have empty revisions, and svn log prints only a
+		   single line of decorations, e.g.
+
+		   user@~$ svn log -r 70 svn://repo.hu/genht/trunk
+		   ------------------------------------------------------------------------
+		   user@~$
+
+		   in case of svn info, the last "good" rev is displayed as "Last Changed Rev"
+
+		   user@~$ svn info -r 70 svn://repo.hu/genht/trunk
+		   Path: trunk
+		   URL: svn://repo.hu/genht/trunk
+		   Relative URL: ^/trunk
+		   Repository Root: svn://repo.hu/genht
+		   Repository UUID: 050b73db-cdb7-47b8-9107-1ae054b27eea
+		   Revision: 70
+		   Node Kind: directory
+		   Last Changed Author: igor2
+		   Last Changed Rev: 69
+		   Last Changed Date: 2017-06-27 07:06:39 +0000 (Tue, 27 Jun 2017)
+		   user@~$
+		*/
+		if(connection->commit_author) {
+			fprintf(stdout, "r%u | %s | %s |\n\n", connection->revision, connection->commit_author, connection->commit_date);
+			fprintf(stdout, "%s\n%s\n", connection->commit_msg, deco);
+		}
 	} else if(connection->job == SVN_INFO) {
 		fprintf(stdout, "Revision: %u\n", connection->revision);
-		fprintf(stdout, "Last Changed Author: %s\n", connection->commit_author);
-		fprintf(stdout, "Last Changed Rev: %u\n", connection->revision);
-		fprintf(stdout, "Last Changed Date: %s +0000\n", connection->commit_date);
+		if(connection->commit_author) {
+			fprintf(stdout, "Last Changed Author: %s\n", connection->commit_author);
+			fprintf(stdout, "Last Changed Rev: %u\n", connection->revision);
+			fprintf(stdout, "Last Changed Date: %s +0000\n", connection->commit_date);
+		}
 	} else {
 		assert(0);
 	}
@@ -2580,12 +2606,16 @@ main(int argc, char **argv)
 				char *p = strchr(buf+5, '\n');
 				if(!p) errx(EXIT_FAILURE, "malformed file %s", svn_version_path);
 				*p = 0;
-				connection.commit_date = strdup(buf+5);
+				p = buf + 5;
+				if(*p)
+					connection.commit_date = strdup(p);
 			} else if(!strncmp(buf, "author=", 7)) {
 				char *p = strchr(buf+7, '\n');
 				if(!p) errx(EXIT_FAILURE, "malformed file %s", svn_version_path);
 				*p = 0;
-				connection.commit_author = strdup(buf+7);
+				p = buf+7;
+				if(*p)
+					connection.commit_author = strdup(p);
 			} else if(!strncmp(buf, "log=", 4)) {
 				/* log entry may span multiple lines, therefore is last in file */
 				char *p = strchr(buf+4, '\n');
