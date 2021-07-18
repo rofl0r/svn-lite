@@ -1,12 +1,20 @@
 # svn-lite
 
-A lightweight svn client based on https://github.com/johnmehr/svnup ,
+A lightweight, read-only svn client based on
+https://github.com/johnmehr/svnup ,
 ported to work on linux and enhanced with a svn-compatible command
 line parser.
 
 Only dependency is libressl/openssl.
 
-Currently, only the checkout/co action is implemented.
+Currently, the following actions are implemented:
+
+- checkout (equiv to git clone)
+- log      (shows commit author, data, message)
+- info     (shows current revision)
+
+Additionally, a git2svn tool is shipped that uses svn-lite client
+to convert a svn repo into a git repo (and can update it later on).
 
 ## purpose
 
@@ -22,7 +30,12 @@ only to download a couple of files.
 
 run `make`.
 
-# svnup mode
+# (original) svnup mode
+
+there's a second use mode apart from the traditional interface modeled
+after apache's svn command line client, called `svnup`, which basically
+just clones a repo according to instructions in a config file and later
+on updates the repo whenever executed.
 
 if you want to use the program as `svnup`, just create a symlink from
 `svn` to `svnup`:
@@ -56,10 +69,3 @@ is equivalent to
 this mode might be handy if you only want to update your
 local checkout of a single SVN repo from time to time.
 
-## future directions
-
-It should be straightforward to add support for a couple
-of commands like `svn diff`.
-A possible goal is to make the program compatible to
-`svn2git` to convert svn repos to git, pretty much the
-only other usecase of svn apart from checking out a repo.
