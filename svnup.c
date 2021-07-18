@@ -1259,13 +1259,9 @@ save_known_file_list(connector *connection, file_node **file, int file_count)
 {
 	struct tree_node  find, *found;
 	int               fd, x;
-	char              revision[16];
 
 	if ((fd = open(connection->known_files_new, O_WRONLY | O_CREAT | O_TRUNC)) == -1)
 		err(EXIT_FAILURE, "write file failure %s", connection->known_files_new);
-
-	snprintf(revision, 16, "%u\r\n", connection->revision);
-	write(fd, revision, strlen(revision));
 
 	for (x = 0; x < file_count; x++) {
 		write(fd, file[x]->md5, strlen(file[x]->md5));
@@ -2244,7 +2240,6 @@ usage(char *configuration_file)
 		"    -h  Override the specified section's hostname or IP address.\n"
 		"    -k  Override the location where known file lists are stored.\n"
 		"    -l  Override the specified section's destination directory.\n"
-		"    -n  Display the section's most recently downloaded revision number and exit.\n"
 		"    -o  Override the specified section's default port.\n"
 		"    -p  Override the specified section's protocol (svn, http, https).\n"
 		"    -r  The revision number to retreive (defaults to the branch's\n"
@@ -2261,7 +2256,7 @@ usage(char *configuration_file)
 }
 
 static void
-getopts_svnup(int argc, char **argv, char *configuration_file, connector *connection, int *display_last_revision)
+getopts_svnup(int argc, char **argv, char *configuration_file, connector *connection)
 {
 	int port_override = 0, option, x;
 
@@ -2282,7 +2277,7 @@ getopts_svnup(int argc, char **argv, char *configuration_file, connector *connec
 		optind = 2;
 	}
 
-	while ((option = getopt(argc, argv, "46Vfntb:h:k:l:o:p:r:v:")) != -1) {
+	while ((option = getopt(argc, argv, "46Vftb:h:k:l:o:p:r:v:")) != -1) {
 		switch (option) {
 			case '4':
 				connection->family = AF_INET;
@@ -2307,9 +2302,6 @@ getopts_svnup(int argc, char **argv, char *configuration_file, connector *connec
 			case 'l':
 				connection->path_target = realloc(connection->path_target, strlen(optarg) + 2);
 				snprintf(connection->path_target, strlen(optarg) + 1, "%s", optarg);
-				break;
-			case 'n':
-				*display_last_revision = 1;
 				break;
 			case 'o':
 				port_override = strtol(optarg, (char **)NULL, 10);
@@ -2503,7 +2495,7 @@ main(int argc, char **argv)
 	char  *md5, *path, *start, temp_buffer[BUFFER_UNIT], *value;
 	char   svn_version_path[255];
 	int    b, *buffer_commands, buffer_full, buffers;
-	int    c, command_count, display_last_revision;
+	int    c, command_count;
 	int    f, f0, fd, file_count, file_max, length;
 
 	file = NULL;
@@ -2512,7 +2504,7 @@ main(int argc, char **argv)
 	buffer_commands = NULL;
 	new_buffer(&buffer, &buffer_commands, &buffers);
 
-	display_last_revision = file_count = command_count = 0;
+	file_count = command_count = 0;
 	buffer_full = f = f0 = length = 0;
 
 	configuration_file = strdup(CONF_FILE_LOC);
@@ -2542,7 +2534,7 @@ main(int argc, char **argv)
 	if(!strcmp(basename(argv[0]), "svn"))
 		getopts_svn(argc, argv, &connection);
 	else
-		getopts_svnup(argc, argv, configuration_file, &connection, &display_last_revision);
+		getopts_svnup(argc, argv, configuration_file, &connection);
 
 	if (connection.job == SVN_SVNUP) {
 		if (connection.path_work == NULL)
@@ -2635,15 +2627,7 @@ main(int argc, char **argv)
 
 		connection.known_files[connection.known_files_size] = '\0';
 		close(fd);
-
-		if ((value = strstr(connection.known_files, "\r\n"))) {
-			value += 2;
-
-			if (display_last_revision) {
-				printf("%ld\n", strtol(connection.known_files, (char **)NULL, 10));
-				exit(0);
-			}
-		} else value = connection.known_files;
+		value = connection.known_files;
 
 		while (*value) {
 			md5 = value;
