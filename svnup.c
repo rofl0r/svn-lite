@@ -60,7 +60,7 @@
 #include <assert.h>
 
 
-#define SVNUP_VERSION "1.08"
+#define SVNUP_VERSION "1.09"
 #define BUFFER_UNIT 4096
 #define COMMAND_BUFFER 32768
 #define COMMAND_BUFFER_THRESHOLD 32000
