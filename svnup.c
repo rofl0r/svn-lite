@@ -65,10 +65,16 @@
 #define COMMAND_BUFFER 32768
 #define COMMAND_BUFFER_THRESHOLD 32000
 
-
 typedef struct {
 	int       socket_descriptor;
 	enum      { NONE, SVN, HTTP, HTTPS } protocol;
+	enum svn_job {
+		SVN_NONE = 0,
+		SVN_SVNUP,
+		SVN_CO,
+		SVN_LOG,
+		SVN_INFO,
+	} job;
 	SSL      *ssl;
 	SSL_CTX  *ctx;
 	char     *address;
@@ -1301,8 +1307,10 @@ static int protocol_from_str(char* line, connector *connection) {
 	if (strncmp(line, "http", 4) == 0) {
 		connection->protocol = HTTP;
 		connection->port = 80;
-	} else
+	} else {
+		connection->protocol = NONE;
 		return 0;
+	}
 
 	return 1;
 }
@@ -2324,13 +2332,21 @@ getopts_svnup(int argc, char **argv, char *configuration_file, connector *connec
 
 	if (port_override)
 		connection->port = port_override;
+
+	connection->job = SVN_SVNUP;
 }
 
 static void
 usage_svn(char *arg0) {
 	fprintf(stderr,
-		"Usage: svn command [options]\n\n"
-		"commands:\n"
+		"Usage: svn command [options] [args]\n\n"
+		"commands:\n\n"
+		"info [options] TARGET - print information about TARGET.\n"
+		"   known options: -r/--revision NUMBER\n"
+		"   TARGET may either be an URL or a local directory.\n\n"
+		"log [options] TARGET - print commit log of TARGET\n"
+		"   known options: -r/--revision NUMBER\n"
+		"   TARGET may either be an URL or a local directory.\n\n"
 		"checkout/co [options] URL [PATH] - checkout repository.\n"
 		"   known options: -r/--revision NUMBER\n"
 		"   if PATH is omitted, basename of URL will be used as destination\n"
@@ -2338,58 +2354,109 @@ usage_svn(char *arg0) {
 	exit(EXIT_FAILURE);
 }
 
+static int has_revision_option(enum svn_job mode) {
+	switch(mode) {
+	case SVN_INFO: case SVN_CO: case SVN_LOG:
+		return 1;
+	}
+	return 0;
+}
+
+static char *protocol_check(char *str, connector *connection)
+{
+	char *p = strchr(str, ':');
+	if(!p || p[1] != '/' || p[2] != '/') {
+		connection->protocol = NONE;
+		return str;
+	}
+	if(!protocol_from_str(str, connection)) {
+		errx(EXIT_FAILURE, "unknown protocol %s\n", str);
+	}
+	p += 3;
+	return p;
+}
+
+
 static void
 getopts_svn(int argc, char **argv, connector *connection)
 {
-	int mode = 0, a = 1;
+	int a = 1;
+
 	if(argc < 2) usage_svn(argv[0]);
 	if(!strcmp(argv[a], "checkout") || !strcmp(argv[a], "co"))
-		mode = 1;
+		connection->job = SVN_CO;
+	else if(!strcmp(argv[a], "info"))
+		connection->job = SVN_INFO;
+	else if(!strcmp(argv[a], "log"))
+		connection->job = SVN_LOG;
 	else
-		usage(argv[0]);
+		usage_svn(argv[0]);
 	++a;
-	if(!strcmp(argv[a], "-r") || !strcmp(argv[a], "--revision")) {
+	if(has_revision_option(connection->job) &&
+	   !strcmp(argv[a], "-r") || !strcmp(argv[a], "--revision")) {
 		++a;
-		if(a >= argc) usage(argv[0]);
+		if(a >= argc) usage_svn(argv[0]);
 		connection->revision = strtol(argv[a++], (char **)NULL, 10);
 	}
-	if(a >= argc) usage(argv[0]);
-	char *p = strchr(argv[a], ':'), *q, *dst;
-	if(!p || p[1] != '/' || p[2] != '/')
-		return usage(argv[0]);
-	*p = 0;
-	if(!protocol_from_str(argv[a], connection)) {
-		errx(EXIT_FAILURE, "unknown protocol %s\n", argv[a]);
-	}
-	*p = ':';
-	p += 3;
-	if(q = strchr(p, ':')) {
-		connection->port = atoi(q+1);
-		*q = 0;
-		connection->address = strdup(p);
-		*q = ':';
-	} else if(q = strchr(p, '/')) {
-		*q = 0;
-		connection->address = strdup(p);
-		*q = '/';
-	}
-	if(q && *q == ':') q = strchr(q, '/');
-	if(!q) {
-		err(EXIT_FAILURE, "expected '/' in URL!");
-	}
-	p = ++q;
-	connection->branch = strdup(p);
-	if(++a >= argc) {
-		dst = basename(connection->branch);
-	} else
-		dst = argv[a];
-	connection->path_target = strdup(dst);
+	if(a >= argc) usage_svn(argv[0]);
 
-	char buf[PATH_MAX];
-	snprintf(buf, sizeof buf, "%s/.svnup.tmp", dst);
+	char *p = protocol_check(argv[a], connection), *q, *dst;
+	if(connection->job == SVN_CO && connection->protocol == NONE)
+		usage_svn(argv[0]);
+	if(connection->protocol != NONE) {
+		if(q = strchr(p, ':')) {
+			connection->port = atoi(q+1);
+			*q = 0;
+			connection->address = strdup(p);
+			*q = ':';
+		} else if(q = strchr(p, '/')) {
+			*q = 0;
+			connection->address = strdup(p);
+			*q = '/';
+		}
+		if(q && *q == ':') q = strchr(q, '/');
+		if(!q) {
+			err(EXIT_FAILURE, "expected '/' in URL!");
+		}
+		p = ++q;
+		connection->branch = strdup(p);
+		if(connection->job == SVN_CO) {
+			if(++a >= argc)
+				dst = basename(connection->branch);
+			else
+				dst = argv[a];
+			connection->path_target = strdup(dst);
+		}
+	} else {
+		connection->path_target = strdup(argv[a]);
+	}
+	if(++a < argc) usage_svn(argv[0]);
 
-	connection->path_work = strdup(buf);
+	if(connection->path_target) {
+		char buf[PATH_MAX];
+		snprintf(buf, sizeof buf, "%s/.svnup", connection->path_target);
+		connection->path_work = strdup(buf);
+	}
+
 	connection->trim_tree = 1;
+}
+
+static void write_info_or_log(connector *connection) {
+	if(connection->job == SVN_LOG) {
+		char deco[73];
+		memset(deco, '-', 72);
+		deco[72] = 0;
+		fprintf(stdout, "%s\n", deco);
+		fprintf(stdout, "r%u | %s | %s |\n\n", connection->revision, connection->commit_author, connection->commit_date);
+		fprintf(stdout, "%s\n%s\n", connection->commit_msg, deco);
+	} else if(connection->job == SVN_INFO) {
+		fprintf(stdout, "Revision: %u\n", connection->revision);
+		fprintf(stdout, "Last Changed Author: %s\n", connection->commit_author);
+		fprintf(stdout, "Last Changed Rev: %u\n", connection->revision);
+		fprintf(stdout, "Last Changed Date: %s +0000\n", connection->commit_date);
+	} else {
+		assert(0);
+	}
 }
 
 
@@ -2409,7 +2476,7 @@ main(int argc, char **argv)
 
 	char **buffer, command[COMMAND_BUFFER + 1], *configuration_file, *end;
 	char  *md5, *path, *start, temp_buffer[BUFFER_UNIT], *value;
-	char   svn_version_path[255], revision[16];
+	char   svn_version_path[255];
 	int    b, *buffer_commands, buffer_full, buffers;
 	int    c, command_count, display_last_revision;
 	int    f, f0, fd, file_count, file_max, length;
@@ -2452,30 +2519,82 @@ main(int argc, char **argv)
 	else
 		getopts_svnup(argc, argv, configuration_file, &connection, &display_last_revision);
 
-	if (connection.path_work == NULL)
-		if ((connection.path_work = strdup("/var/db/svnup")) == NULL)
-			errx(EXIT_FAILURE, "Cannot set connection.path_work");
+	if (connection.job == SVN_SVNUP) {
+		if (connection.path_work == NULL)
+			if ((connection.path_work = strdup("/var/db/svnup")) == NULL)
+				errx(EXIT_FAILURE, "Cannot set connection.path_work");
 
-	if (connection.address == NULL)
-		errx(EXIT_FAILURE, "\nNo mirror specified.  Please uncomment the preferred SVN mirror in %s.\n\n", configuration_file);
+		if (connection.address == NULL)
+			errx(EXIT_FAILURE, "\nNo mirror specified.  Please uncomment the preferred SVN mirror in %s.\n\n", configuration_file);
 
-	if ((connection.branch == NULL) || (connection.path_target == NULL))
-		usage(configuration_file);
+		if ((connection.branch == NULL) || (connection.path_target == NULL))
+			usage(configuration_file);
+	}
 
 	/* Create the destination directories if they doesn't exist. */
 
-	create_directory(connection.path_target);
-	create_directory(connection.path_work);
+	if(connection.path_target) create_directory(connection.path_target);
+	if(connection.path_work) {
+		create_directory(connection.path_work);
+		snprintf(svn_version_path, sizeof(svn_version_path),
+			"%s/revision", connection.path_work);
+	} else svn_version_path[0] = 0;
+
+	if(connection.protocol == NONE) {
+		FILE *f = fopen(svn_version_path, "r");
+		char buf[1024];
+		int in_log = 0;
+		if(!f) errx(EXIT_FAILURE, "couldn't open %s", svn_version_path);
+		while(fgets(buf, sizeof buf, f)) {
+			if(in_log) {
+				size_t l = strlen(connection.commit_msg);
+				connection.commit_msg = realloc(connection.commit_msg, l + 1 + sizeof buf);
+				if(l && connection.commit_msg[l-1] == '\n');
+				else { connection.commit_msg[l] = '\n'; ++l; }
+				char *p = strchr(buf, '\n');
+				if(p) *p = 0;
+				memcpy(connection.commit_msg+l, buf, strlen(buf)+1);
+			} else if(!strncmp(buf, "rev=", 4)) {
+				unsigned rev = atoi(buf+4);
+				if(connection.revision && connection.revision != rev)
+					errx(EXIT_FAILURE, "no local date for selected revision available, got %u", rev);
+				connection.revision = rev;
+			} else if(!strncmp(buf, "date=", 5)) {
+				char *p = strchr(buf+5, '\n');
+				if(!p) errx(EXIT_FAILURE, "malformed file %s", svn_version_path);
+				*p = 0;
+				connection.commit_date = strdup(buf+5);
+			} else if(!strncmp(buf, "author=", 7)) {
+				char *p = strchr(buf+7, '\n');
+				if(!p) errx(EXIT_FAILURE, "malformed file %s", svn_version_path);
+				*p = 0;
+				connection.commit_author = strdup(buf+7);
+			} else if(!strncmp(buf, "log=", 4)) {
+				/* log entry may span multiple lines, therefore is last in file */
+				char *p = strchr(buf+4, '\n');
+				if(p) *p = 0;
+				connection.commit_msg = malloc(strlen(buf+4)+1);
+				memcpy(connection.commit_msg, buf+4, strlen(buf+4)+1);
+				in_log = 1;
+			}
+		}
+		fclose(f);
+		write_info_or_log(&connection);
+		return 0;
+	}
+
 
 	/* Load the list of known files and MD5 signatures, if they exist. */
+
+	if(connection.path_work) {
 
 	length = strlen(connection.path_work) + MAXNAMLEN;
 
 	connection.known_files_old = (char *)malloc(length);
 	connection.known_files_new = (char *)malloc(length);
 
-	snprintf(connection.known_files_old, length, "%s/%s", connection.path_work, argv[1]);
-	snprintf(connection.known_files_new, length, "%s/%s.new", connection.path_work, argv[1]);
+	snprintf(connection.known_files_old, length, "%s/known_files", connection.path_work);
+	snprintf(connection.known_files_new, length, "%s/known_files.new", connection.path_work);
 
 	if (stat(connection.known_files_old, &local) != -1) {
 		connection.known_files_size = local.st_size;
@@ -2518,6 +2637,8 @@ main(int argc, char **argv)
 		find_local_files_and_directories(connection.path_target, "", 1);
 	else
 		find_local_files_and_directories(connection.path_target, "", 0);
+
+	}
 
 	/* Initialize connection with the server and get the latest revision number. */
 
@@ -2591,7 +2712,7 @@ main(int argc, char **argv)
 		process_log_svn(&connection);
 	}
 
-	if (connection.protocol >= HTTP) {
+	else if (connection.protocol >= HTTP) {
 		connection.response_groups = 2;
 
 		snprintf(command,
@@ -2647,6 +2768,11 @@ main(int argc, char **argv)
 		}
 
 		if(connection.rev_root_stub) process_log_http(&connection);
+	}
+
+	if (connection.job == SVN_LOG || connection.job == SVN_INFO) {
+		write_info_or_log(&connection);
+		return 0;
 	}
 
 	if (connection.verbosity)
@@ -2856,15 +2982,19 @@ main(int argc, char **argv)
 
 	/* Save the current revision number for inclusion in newvers.sh */
 
-	snprintf(svn_version_path, sizeof(svn_version_path), "%s/.svnversion", connection.path_target);
-	snprintf(revision, sizeof(revision), "%u\r\n", connection.revision);
-
-	if ((fd = open(svn_version_path, O_WRONLY | O_CREAT | O_TRUNC)) == -1)
+	{
+	FILE *f;
+	if (!(f = fopen(svn_version_path, "w")))
 		err(EXIT_FAILURE, "write file failure %s", svn_version_path);
-
-	write(fd, revision, strlen(revision));
-	close(fd);
-
+	int pr = connection.protocol;
+	char *ps = pr == SVN ? "svn" : pr == HTTP ? "http" : "https";
+	fprintf(f, "rev=%u\n", connection.revision);
+	fprintf(f, "url=%s://%s/%s\n", ps, connection.address, connection.branch);
+	fprintf(f, "date=%s\n", connection.commit_date ? connection.commit_date : "");
+	fprintf(f, "author=%s\n", connection.commit_author ? connection.commit_author : "");
+	fprintf(f, "log=%s\n", connection.commit_msg ? connection.commit_msg : "");
+	fclose(f);
+	}
 	chmod(svn_version_path, 0644);
 
 	/* Any files left in the tree are safe to delete. */
@@ -2875,9 +3005,7 @@ main(int argc, char **argv)
 		if ((found = RB_FIND(tree_local_files, &local_files, data)) != NULL)
 			tree_node_free(RB_REMOVE(tree_local_files, &local_files, found));
 
-		if (	!strncmp(svn_version_path, data->path, strlen(svn_version_path)) ||
-			!strncmp(connection.path_work, data->path, strlen(connection.path_work)))
-		; else
+		if (strncmp(connection.path_work, data->path, strlen(connection.path_work)))
 			prune(&connection, data->path);
 
 		tree_node_free(RB_REMOVE(tree_known_files, &known_files, data));
@@ -2894,9 +3022,7 @@ main(int argc, char **argv)
 		if (connection.trim_tree) {
 			char buf[1024];
 			snprintf(buf, sizeof buf, "%s%s", connection.path_target, data->path);
-			if (	!strcmp(svn_version_path, buf) ||
-				!strncmp(connection.path_work, buf, strlen(connection.path_work)))
-			; else
+			if (strncmp(connection.path_work, buf, strlen(connection.path_work)))
 				prune(&connection, data->path);
 		} else {
 			if (connection.extra_files)
