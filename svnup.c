@@ -819,7 +819,7 @@ process_command_http(connector *connection, char *command)
 		if (chunked_transfer == -1) {
 			begin = connection->response + offset;
 
-			if ((begin = strstr(begin, "HTTP/1.1 20")) == NULL) {
+			if ((begin = strstr(begin, "HTTP/1.1 ")) == NULL) {
 				read_more = 1;
 				continue;
 			}
