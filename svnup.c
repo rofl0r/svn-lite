@@ -1684,7 +1684,8 @@ process_report_svn(connector *connection, char *command, file_node ***file, int 
 	free(buffer);
 }
 
-static char* craft_http_packet(char *host, char* url, char* verb, char* footer, char* command) {
+static char* craft_http_packet(const char *host, const char* url,
+	const char* verb, const char* footer, char* command) {
 	snprintf(command,
 		COMMAND_BUFFER,
 		"%s %s HTTP/1.1\r\n"
@@ -2767,28 +2768,16 @@ main(int argc, char **argv)
 	}
 
 	else if (connection.protocol >= HTTP) {
-		connection.response_groups = 2;
-
-		snprintf(command,
-			COMMAND_BUFFER,
-			"OPTIONS /%s HTTP/1.1\r\n"
-			"Host: %s\r\n"
-			"User-Agent: svnup-%s\r\n"
-			"Content-Type: text/xml\r\n"
-			"DAV: http://subversion.tigris.org/xmlns/dav/svn/depth\r\n"
-			"DAV: http://subversion.tigris.org/xmlns/dav/svn/mergeinfo\r\n"
-			"DAV: http://subversion.tigris.org/xmlns/dav/svn/log-revprops\r\n"
-			"Transfer-Encoding: chunked\r\n\r\n"
-			"83\r\n"
+		char url[512];
+		static const char *footer =
 			"<?xml version=\"1.0\" encoding=\"utf-8\"?>"
 			"<D:options xmlns:D=\"DAV:\">"
 			"<D:activity-collection-set></D:activity-collection-set>"
-			"</D:options>\r\n"
-			"0\r\n\r\n",
-			connection.branch,
-			connection.address,
-			SVNUP_VERSION);
+			"</D:options>\r\n";
 
+		snprintf(url, sizeof url, "/%s", connection.branch);
+		craft_http_packet(connection.address, url, "OPTIONS", footer, command);
+		connection.response_groups = 2;
 		process_command_http(&connection, command);
 
 		/* Get the latest revision number. */
