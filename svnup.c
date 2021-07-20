@@ -800,6 +800,7 @@ process_command_http(connector *connection, char *command)
 				if ((errno == EINTR) || (errno == 0))
 					continue;
 
+			check_tries_and_retry:;
 				if (++try > 5)
 					errx(EXIT_FAILURE, "Error in http stream.  Quitting.");
 
@@ -809,7 +810,10 @@ process_command_http(connector *connection, char *command)
 				goto retry;
 			}
 
-			if (bytes_read == 0) break;
+			if (bytes_read == 0) {
+				if(connection->response_length == 0) goto check_tries_and_retry;
+				break;
+			}
 
 			memcpy(connection->response + connection->response_length, input, bytes_read + 1);
 			connection->response_length += bytes_read;
@@ -924,6 +928,9 @@ process_command_http(connector *connection, char *command)
 
 	if (connection->verbosity > 3)
 		fprintf(stderr, "==========\n%s\n==========\n", connection->response);
+
+	if(!strstr(connection->response, "HTTP/1.1 "))
+		errx(EXIT_FAILURE, "unexpected response from HTTP server:\n%s", connection->response);
 
 	return (connection->response);
 }
@@ -1797,7 +1804,10 @@ static void process_log_http(connector *connection) {
 	connection->commit_author = parse_xml_value(start, end, "D:creator-displayname");
 	connection->commit_date   = parse_xml_value(start, end, "S:date");
 	connection->commit_msg    = parse_xml_value(start, end, "D:comment");
-	sanitize_svn_date(connection->commit_date);
+	if(connection->commit_date)
+		sanitize_svn_date(connection->commit_date);
+	else
+		fprintf(stderr, "warning: empty reply for log request\n");
 }
 
 /*
