@@ -632,6 +632,10 @@ process_command_svn(connector *connection, const char *command, unsigned int exp
 			goto retry;
 		}
 
+		input[bytes_read] = 0;
+		if (connection->verbosity > 3)
+			fprintf(stdout, "<< %s\n", input);
+
 		connection->response_length += bytes_read;
 
 		if (connection->response_length > connection->response_blocks * BUFFER_UNIT) {
