@@ -65,8 +65,9 @@
 #define COMMAND_BUFFER 32768
 #define COMMAND_BUFFER_THRESHOLD 32000
 
+#define LIT_LEN(S) (sizeof(S)-1)
 #define starts_with_lit(S1, S2) \
-	(strncmp(S1, S2, sizeof(S2)-1) == 0)
+	(strncmp(S1, S2, LIT_LEN(S2)) == 0)
 
 typedef struct {
 	int       socket_descriptor;
@@ -548,18 +549,18 @@ check_command_success(int protocol, char **start, char **end)
 	char *response = *start;
 
 	if (protocol == SVN) {
-		if (strstr(*start, "( success ( ( ) 0: ) ) ( failure") == *start)
+		if (starts_with_lit(*start, "( success ( ( ) 0: ) ) ( failure"))
 			fail = 1;
 
-		if (strstr(*start, "( success ( ) ) ( failure") == *start)
+		else if (starts_with_lit(*start, "( success ( ) ) ( failure"))
 			fail = 1;
 
 		if (!fail) {
 			while (**start == ' ') (*start)++;
 
-			if (strstr(*start, "( success ") == *start) {
-				if (strstr(*start, "( success ( ( ) 0: ) )") == *start)
-					*start += 23;
+			if (starts_with_lit(*start, "( success ")) {
+				if (starts_with_lit(*start, "( success ( ( ) 0: ) )"))
+					*start += LIT_LEN("( success ( ( ) 0: ) )")+1;
 				*end = find_response_end(protocol, *start, *end) + 1;
 			}
 			else fail = 1;
@@ -570,7 +571,7 @@ check_command_success(int protocol, char **start, char **end)
 		if (!starts_with_lit(*start, "HTTP/1.1 "))
 			fail = 1;
 		else {
-			*start += sizeof("HTTP/1.1 ")-1;
+			*start += LIT_LEN("HTTP/1.1 ");
 			if(**start != '2') fail = 1;
 			else {
 				*start = strstr(*start, "\r\n\r\n");
@@ -1219,7 +1220,7 @@ save_file(char *filename, char *revision_tag, char *start, char *end, int execut
 	saved = 0;
 
 	if (special) {
-		if (strstr(start, "link ") == start) {
+		if (starts_with_lit(start, "link ")) {
 			*end = '\0';
 
 			if (stat(filename, &local) == 0)
@@ -1356,16 +1357,15 @@ set_configuration_parameters(connector *connection, char *buffer, size_t length,
 			if (line[0] == '#')
 				continue;
 
-			if (strstr(line, "host=") == line) {
+			if (0) {
+			} else if (starts_with_lit(line, "host=")) {
 				line += 5;
 				if ((connection->address = (char *)realloc(connection->address, item - line + 1)) == NULL)
 					err(EXIT_FAILURE, "set_configuration bracketed_section realloc");
 
 				memcpy(connection->address, line, item - line);
 				continue;
-			}
-
-			if (strstr(line, "branch=") == line) {
+			} else if (starts_with_lit(line, "branch=")) {
 				line += 7;
 				while (*line == '/') line++;
 
@@ -1374,48 +1374,34 @@ set_configuration_parameters(connector *connection, char *buffer, size_t length,
 
 				memcpy(connection->branch, line, item - line);
 				continue;
-			}
-
-			if (strstr(line, "target=") == line) {
+			} else if (starts_with_lit(line, "target=")) {
 				line += 7;
 				if ((connection->path_target = (char *)realloc(connection->path_target, item - line + 1)) == NULL)
 					err(EXIT_FAILURE, "set_configuration connection->path_target realloc");
 
 				memcpy(connection->path_target, line, item - line);
 				continue;
-			}
-
-			if (strstr(line, "work_directory=") == line) {
+			} else if (starts_with_lit(line, "work_directory=")) {
 				line += 15;
 				if ((connection->path_work = (char *)realloc(connection->path_work, item - line + 1)) == NULL)
 					err(EXIT_FAILURE, "set_configuration connection->path_work realloc");
 
 				memcpy(connection->path_work, line, item - line);
 				continue;
-			}
-
-			if (strstr(line, "protocol=") == line) {
+			} else if (starts_with_lit(line, "protocol=")) {
 				line += 9;
 				protocol_from_str(line, connection);
 				continue;
-			}
-
-			if (strstr(line, "port=") == line) {
+			} else if (starts_with_lit(line, "port=")) {
 				connection->port = strtol(line + 5, (char **)NULL, 10);
 				continue;
-			}
-
-			if (strstr(line, "verbosity=") == line) {
+			} else if (starts_with_lit(line, "verbosity=")) {
 				connection->verbosity = strtol(line + 10, (char **)NULL, 10);
 				continue;
-			}
-
-			if (strstr(line, "trim_tree=") == line) {
+			} else if (starts_with_lit(line, "trim_tree=")) {
 				connection->trim_tree = strtol(line + 10, (char **)NULL, 10);
 				continue;
-			}
-
-			if (strstr(line, "extra_files=") == line) {
+			} else if (starts_with_lit(line, "extra_files=")) {
 				connection->extra_files = strtol(line + 12, (char **)NULL, 10);
 				continue;
 			}
@@ -1530,7 +1516,7 @@ process_report_svn(connector *connection, char *command, file_node ***file, int 
 	directory_start = command_start;
 
 	for (d = 0; d < connection->response_groups / 2; d++) {
-		if (strstr(directory_start, "( get-dir ( ") != directory_start)
+		if (!starts_with_lit(directory_start, "( get-dir ( "))
 			errx(EXIT_FAILURE, "Error in response: %s\n", directory_start);
 
 		directory_end = strchr(directory_start, '\n');
@@ -1578,7 +1564,7 @@ process_report_svn(connector *connection, char *command, file_node ***file, int 
 
 			marker = strchr(item_start, ':') + 1 + length;
 
-			if (strstr(marker, " file ") == marker) {
+			if (starts_with_lit(marker, " file ")) {
 				this_file = new_file_node(file, file_count, file_max);
 
 				name_length = strtol(item_start + 1, (char **)NULL, 10);
@@ -1591,7 +1577,7 @@ process_report_svn(connector *connection, char *command, file_node ***file, int 
 				*item_start = '\0';
 				path_length = strlen(path_source) + name_length + 2;
 
-				if (strstr(item_start + 1, "file ") != item_start + 1)
+				if (!starts_with_lit(item_start + 1, "file "))
 					errx(EXIT_FAILURE, "process_file_entry malformed response");
 
 				if ((this_file->path = (char *)malloc(path_length)) == NULL)
@@ -1603,7 +1589,7 @@ process_report_svn(connector *connection, char *command, file_node ***file, int 
 				this_file->size = strtol(item_start, (char **)NULL, 10);
 			}
 
-			if (strstr(marker, " dir ") == marker) {
+			if (starts_with_lit(marker, " dir ")) {
 				length = strtol(item_start + 1, (char **)NULL, 10);
 				if (length > MAXNAMLEN)
 					errx(EXIT_FAILURE, "process_file file name is too long");
@@ -1745,8 +1731,8 @@ static void process_log_svn(connector *connection) {
 	end = connection->response + connection->response_length;
 
 	char* group2 = connection->response + strlen(connection->response) +1;
-	if(group2 < end && strstr(group2, "done ( failure ( ( ") == group2)
-		errx(EXIT_FAILURE, "%s", group2 + sizeof("done ( failure ( ( ")-1);
+	if(group2 < end && starts_with_lit(group2, "done ( failure ( ( "))
+		errx(EXIT_FAILURE, "%s", group2 + LIT_LEN("done ( failure ( ( "));
 
 	if (check_command_success(connection->protocol, &start, &end))
 		errx(EXIT_FAILURE, "couldn't get log");
@@ -2732,8 +2718,8 @@ main(int argc, char **argv)
 			if (check_command_success(connection.protocol, &start, &end))
 				exit(EXIT_FAILURE);
 
-			if ((start != NULL) && (start == strstr(start, "( success ( "))) {
-				start += 12;
+			if ((start != NULL) && starts_with_lit(start, "( success ( ")) {
+				start += LIT_LEN("( success ( ");
 				value = start;
 				while (*start != ' ') start++;
 				*start = '\0';
