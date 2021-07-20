@@ -109,14 +109,14 @@ typedef struct {
 
 
 typedef struct {
+	char      md5[33];
 	char      download;
 	char      executable;
+	char      special;
 	char     *href;
-	char     *md5;
 	char     *path;
 	uint64_t  raw_size;
 	uint64_t  size;
-	char      special;
 } file_node;
 
 
@@ -1132,18 +1132,10 @@ confirm_md5(char *md5, char *file_path_target)
 static file_node *
 new_file_node(file_node ***file, int *file_count, int *file_max)
 {
-	file_node *node;
+	file_node *node = calloc(1, sizeof(file_node));
 
-	if ((node = (file_node *)malloc(sizeof(file_node))) == NULL)
+	if (node == NULL)
 		err(EXIT_FAILURE, "new_file_node node malloc");
-
-	if ((node->md5 = (char *)malloc(34)) == NULL)
-		err(EXIT_FAILURE, "new_file_node node->md5 malloc");
-
-	bzero(node->md5, 33);
-	node->size = node->raw_size = 0;
-	node->href = NULL;
-	node->special = node->executable = node->download = 0;
 
 	(*file)[*file_count] = node;
 
