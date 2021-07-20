@@ -2559,16 +2559,6 @@ main(int argc, char **argv)
 	command[0] = '\0';
 
 	connection.response_blocks = 11264;
-	connection.response_length = connection.revision = 0;
-	connection.address = connection.branch = connection.path_target = NULL;
-	connection.path_work = connection.known_files = NULL;
-	connection.trunk = connection.root = NULL;
-	connection.rev_root_stub = NULL;
-	connection.known_files_old = connection.known_files_new = NULL;
-	connection.ssl = NULL;
-	connection.ctx = NULL;
-	connection.socket_descriptor = connection.port = 0;
-	connection.trim_tree = connection.extra_files = connection.known_files_size = 0;
 	connection.verbosity = 1;
 	connection.family = AF_UNSPEC;
 	connection.protocol = HTTPS;
