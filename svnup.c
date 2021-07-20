@@ -2056,12 +2056,12 @@ getopts_svn(int argc, char **argv, connector *connection)
 	if(connection->job == SVN_CO && connection->protocol == NONE)
 		usage_svn(argv[0]);
 	if(connection->protocol != NONE) {
-		if(q = strchr(p, ':')) {
+		if((q = strchr(p, ':'))) {
 			connection->port = atoi(q+1);
 			*q = 0;
 			connection->address = strdup(p);
 			*q = ':';
-		} else if(q = strchr(p, '/')) {
+		} else if((q = strchr(p, '/'))) {
 			*q = 0;
 			connection->address = strdup(p);
 			*q = '/';
