@@ -65,6 +65,9 @@
 #define COMMAND_BUFFER 32768
 #define COMMAND_BUFFER_THRESHOLD 32000
 
+#define starts_with_lit(S1, S2) \
+	(strncmp(S1, S2, sizeof(S2)-1) == 0)
+
 typedef struct {
 	int       socket_descriptor;
 	enum      { NONE, SVN, HTTP, HTTPS } protocol;
@@ -564,15 +567,15 @@ check_command_success(int protocol, char **start, char **end)
 	}
 
 	if (protocol >= HTTP) {
-		if (strstr(*start, "HTTP/1.1 50") == *start)
+		if (!starts_with_lit(*start, "HTTP/1.1 "))
 			fail = 1;
-
-		if (strstr(*start, "HTTP/1.1 40") == *start)
-			fail = 1;
-
-		if (strstr(*start, "HTTP/1.1 20") == *start) {
-			*start = strstr(*start, "\r\n\r\n");
-			if (*start) *start += 4; else fail = 1;
+		else {
+			*start += sizeof("HTTP/1.1 ")-1;
+			if(**start != '2') fail = 1;
+			else {
+				*start = strstr(*start, "\r\n\r\n");
+				if (*start) *start += 4; else fail = 1;
+			}
 		}
 	}
 
