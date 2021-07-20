@@ -1797,9 +1797,12 @@ static void process_log_http(connector *connection) {
 	process_command_http(connection, command);
 
 	char *start = connection->response,
-	     *end = start + connection->response_length;
-	start = strstr(start, "xml version=");
-	if(!start) start = connection->response;
+	     *end = start + connection->response_length, *p;
+
+	if(check_command_success(connection->protocol, &start, &end))
+		errx(EXIT_FAILURE, "couldn't get log\n%s", start);
+
+	if((p = strstr(start, "xml version="))) start = p+10;
 
 	connection->commit_author = parse_xml_value(start, end, "D:creator-displayname");
 	connection->commit_date   = parse_xml_value(start, end, "S:date");
