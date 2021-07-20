@@ -117,7 +117,6 @@ typedef struct {
 	uint64_t  raw_size;
 	uint64_t  size;
 	char      special;
-	char     *revision_tag;
 } file_node;
 
 
@@ -146,7 +145,7 @@ static int		 parse_response_item(connector *, char *, int *, char **, char **);
 static int		 confirm_md5(char *, char *);
 static file_node	*new_file_node(file_node ***, int *, int *);
 static void		 new_buffer(char ***, int **, int *);
-static int		 save_file(char *, char *, char *, char *, int, int);
+static int		 save_file(char *, char *, char *, int, int);
 static void		 save_known_file_list(connector *, file_node **, int);
 static void		 set_configuration_parameters(connector *, char *, size_t, const char *);
 static void		 load_configuration(connector *, char *, char *);
@@ -1067,8 +1066,7 @@ parse_response_item(connector *connection, char *end, int *count, char **item_st
  * confirm_md5
  *
  * Function that loads a local file and removes revision tags one at a time until
- * the MD5 checksum matches that of the corresponding repository file or the file
- * has run out of $ FreeBSD : markers.
+ * the MD5 checksum matches that of the corresponding repository file
  */
 
 static int
@@ -1114,25 +1112,7 @@ confirm_md5(char *md5, char *file_path_target)
 			temp_size = file.st_size;
 			start = buffer;
 
-			/* Continue removing revision tags while the MD5 sums do not match. */
-
-			while ((mismatch) && (start)) {
-				mismatch = strncmp(md5, md5sum(buffer, temp_size, md5_check), 33);
-
-				start = strstr(start, "$FreeBSD:");
-
-				if ((mismatch) && (start)) {
-					start += 8;
-					value = strchr(start, '$');
-					eol = strchr(start, '\n');
-
-					if ((value) && ((eol == NULL) || (value < eol))) {
-						memmove(start, value, temp_size - (value - buffer));
-						temp_size -= (value - start);
-						buffer[temp_size] = '\0';
-					}
-				}
-			}
+			mismatch = strncmp(md5, md5sum(buffer, temp_size, md5_check), 33);
 
 			free(buffer);
 		}
@@ -1162,7 +1142,7 @@ new_file_node(file_node ***file, int *file_count, int *file_max)
 
 	bzero(node->md5, 33);
 	node->size = node->raw_size = 0;
-	node->href = node->revision_tag = NULL;
+	node->href = NULL;
 	node->special = node->executable = node->download = 0;
 
 	(*file)[*file_count] = node;
@@ -1207,11 +1187,11 @@ new_buffer(char ***buffer, int **buffer_commands, int *buffers)
 /*
  * save_file
  *
- * Procedure that saves a file and inserts revision tags if any exist.
+ * Procedure that saves a file.
  */
 
 static int
-save_file(char *filename, char *revision_tag, char *start, char *end, int executable, int special)
+save_file(char *filename, char *start, char *end, int executable, int special)
 {
 	struct stat  local;
 	int          fd, saved;
@@ -1236,17 +1216,6 @@ save_file(char *filename, char *revision_tag, char *start, char *end, int execut
 	} else {
 		if ((fd = open(filename, O_WRONLY | O_CREAT | O_TRUNC)) == -1)
 			err(EXIT_FAILURE, "write file failure %s", filename);
-
-		if (revision_tag) {
-			*end = '\0';
-
-			while ((start < end) && ((tag = strstr(start, "$FreeBSD$")) != NULL)) {
-				tag += 8;
-				write(fd, start, tag - start);
-				write(fd, revision_tag, strlen(revision_tag));
-				start = tag;
-			}
-		}
 
 		write(fd, start, end - start);
 		close(fd);
@@ -1290,9 +1259,6 @@ save_known_file_list(connector *connection, file_node **file, int file_count)
 
 		if ((found = RB_FIND(tree_local_files, &local_files, &find)) != NULL)
 			tree_node_free(RB_REMOVE(tree_local_files, &local_files, found));
-
-		if (file[x]->revision_tag)
-			free(file[x]->revision_tag);
 
 		if (file[x]->href)
 			free(file[x]->href);
@@ -1914,104 +1880,25 @@ process_report_http(connector *connection, file_node ***file, int *file_count, i
 static void
 parse_additional_attributes(connector *connection, char *start, char *end, file_node *file)
 {
-	char *committed_date, *committed_date_end, *committed_rev, *committed_rev_end;
-	char *getetag, *last_author, *last_author_end, *md5, *relative_path;
-	char  revision_tag[BUFFER_UNIT], *temp, *value;
+	char *md5, *temp, *value;
 
-	revision_tag[0] = '\0';
+	if (file == NULL) return;
 
-	last_author    = last_author_end    = NULL;
-	committed_rev  = committed_rev_end  = NULL;
-	committed_date = committed_date_end = NULL;
+	if (connection->protocol == SVN) {
+		if ((temp = strchr(start, ':')) != NULL) {
+			md5 = ++temp;
+			memcpy(file->md5, md5, 32);
 
-	if (file != NULL) {
-		if (connection->protocol == SVN)
-			if ((temp = strchr(start, ':')) != NULL) {
-				md5 = ++temp;
-				memcpy(file->md5, md5, 32);
-
-				file->executable = (strstr(start, "14:svn:executable") ? 1 : 0);
-				file->special    = (strstr(start, "11:svn:special") ? 1 : 0);
-
-				if ((temp = strstr(start, "last-author ")) != NULL) {
-					last_author     = strchr(temp, ':') + 1;
-					last_author_end = strchr(last_author, ' ');
-				}
-
-				if ((temp = strstr(start, "committed-rev ")) != NULL) {
-					committed_rev     = strchr(temp, ':') + 1;
-					committed_rev_end = strchr(committed_rev, ' ');
-				}
-
-				if ((temp = strstr(start, "committed-date ")) != NULL) {
-					committed_date = strchr(temp, ':') + 1;
-					temp = strchr(committed_date, 'T');
-					*temp++ = ' ';
-					temp = strchr(committed_date, '.');
-					*temp++ = 'Z';
-					committed_date_end = temp;
-				}
-
-				if (strstr(start, "( 12:svn:keywords 10:FreeBSD=%H ) ") != NULL)
-					if ((last_author) && (committed_rev) && (committed_date)) {
-						*last_author_end    = '\0';
-						*committed_rev_end  = '\0';
-						*committed_date_end = '\0';
-
-						temp = strchr(connection->branch, '/') + 1;
-
-						snprintf(revision_tag,
-							BUFFER_UNIT,
-							": %s%s %s %s %s ",
-							temp,
-							file->path,
-							committed_rev,
-							committed_date,
-							last_author);
-					}
-			}
-
-		if (connection->protocol >= HTTP) {
-			value = parse_xml_value(start, end, "lp1:getcontentlength");
-			file->size = strtol(value, (char **)NULL, 10);
-			free(value);
-
-			file->executable = (strstr(start, "<S:executable/>") ? 1 : 0);
-			file->special    = (strstr(start, "<S:special>*</S:special>") ? 1 : 0);
-
-			last_author    = parse_xml_value(start, end, "lp1:creator-displayname");
-			committed_date = parse_xml_value(start, end, "lp1:creationdate");
-			committed_rev  = parse_xml_value(start, end, "lp1:version-name");
-			getetag        = parse_xml_value(start, end, "lp1:getetag");
-
-			relative_path = strstr(getetag, "//") + 2;
-			relative_path[strlen(relative_path) - 1] = '\0';
-
-			if ((temp = strchr(committed_date, '.')) != NULL) {
-				*temp++ = 'Z';
-				*temp = '\0';
-			}
-
-			if ((temp = strchr(committed_date, 'T')) != NULL)
-				*temp = ' ';
-
-			if (strstr(start, "FreeBSD=%H"))
-				snprintf(revision_tag,
-					BUFFER_UNIT,
-					": %s %s %s %s ",
-					relative_path,
-					committed_rev,
-					committed_date,
-					last_author);
-
-			free(last_author);
-			free(committed_rev);
-			free(committed_date);
-			free(getetag);
+			file->executable = (strstr(start, "14:svn:executable") ? 1 : 0);
+			file->special    = (strstr(start, "11:svn:special") ? 1 : 0);
 		}
+	} else if (connection->protocol >= HTTP) {
+		value = parse_xml_value(start, end, "lp1:getcontentlength");
+		file->size = strtol(value, (char **)NULL, 10);
+		free(value);
 
-	if (revision_tag[0] != '\0')
-		file->revision_tag = strdup(revision_tag);
+		file->executable = (strstr(start, "<S:executable/>") ? 1 : 0);
+		file->special    = (strstr(start, "<S:special>*</S:special>") ? 1 : 0);
 	}
 }
 
@@ -2150,7 +2037,6 @@ get_files(connector *connection, char *command, char *path_target, file_node **f
 		}
 
 		saved = save_file(file_path_target,
-				file[x]->revision_tag,
 				begin,
 				begin + file[x]->size,
 				file[x]->executable,
