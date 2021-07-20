@@ -1,6 +1,5 @@
 PROG= svn
-SRCS= svnup.c
-OBJS= svnup.o
+OBJS= svnup.o sblist.o sblist_delete.o
 
 LDADD= -lssl -lcrypto
 
@@ -13,7 +12,7 @@ all: $(PROG)
 svnup.o: CPPFLAGS += -I.
 
 $(PROG): $(OBJS)
-	$(CC) $(CFLAGS) -o $@ $< $(LDFLAGS) $(LDADD)
+	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS) $(LDADD)
 
 clean:
 	rm -f $(PROG) $(OBJS)

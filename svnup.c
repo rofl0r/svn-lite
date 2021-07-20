@@ -54,6 +54,7 @@
 #include <libgen.h>
 #include <assert.h>
 
+#include "stringlist.h"
 
 #define SVNUP_VERSION "1.09"
 #define BUFFER_UNIT 4096
@@ -138,7 +139,6 @@ static void		 parse_response_group(connector *, char **, char **);
 static int		 parse_response_item(connector *, char *, int *, char **, char **);
 static int		 confirm_md5(char *, char *);
 static file_node	*new_file_node(file_node ***, int *, int *);
-static void		 new_buffer(char ***, int **, int *);
 static int		 save_file(char *, char *, char *, int, int);
 static void		 save_known_file_list(connector *, file_node **, int);
 static void		 create_directory(char *);
@@ -1144,33 +1144,6 @@ new_file_node(file_node ***file, int *file_count, int *file_max)
 	return (node);
 }
 
-
-/*
- * new_buffer
- *
- * Procedure that creates a new buffer for storing commands to be
- * sent and expands the dynamic array that keeps track of them.
- */
-
-static void
-new_buffer(char ***buffer, int **buffer_commands, int *buffers)
-{
-	(*buffers)++;
-
-	if ((*buffer = realloc(*buffer, sizeof(char **) * (*buffers + 1))) == NULL)
-		err(EXIT_FAILURE, "new_buffer buffer realloc");
-
-	if ((*buffer_commands = realloc(*buffer_commands, sizeof(int *) * (*buffers + 1))) == NULL)
-		err(EXIT_FAILURE, "new_buffer buffer_commands realloc");
-
-	if (((*buffer)[*buffers] = malloc(COMMAND_BUFFER)) == NULL)
-		err(EXIT_FAILURE, "new_buffer buffer[0] malloc");
-
-	(*buffer_commands)[*buffers] = 0;
-	bzero((*buffer)[*buffers], COMMAND_BUFFER);
-}
-
-
 /*
  * save_file
  *
@@ -1313,6 +1286,35 @@ create_directory(char *directory)
 }
 
 
+/* concats all strings in stringlist (up to a defined margin) into a single
+   long string, and removes the processed entries from the list.
+   returns pointer to a freshly allocated string.
+   returns NULL if no strings are left.
+   if items is set to non-zero, it is used as a max value for the number
+   of items concatenated.
+   items will be filled with the number of strings joined into the result.*/
+static char *concat_stringlist(stringlist *sl, size_t maxlen, size_t *items) {
+	char *chain = malloc(maxlen),
+	     *cp = chain, *ce = chain+(maxlen-1);
+	size_t max_items = *items;
+	*items = 0;
+	while(stringlist_getsize(sl)) {
+		char *s = stringlist_get(sl, 0);
+		size_t l = strlen(s);
+		if(cp + l < ce && (!max_items || *items < max_items)) {
+			strcpy(cp, s);
+			cp += l;
+			++(*items);
+			stringlist_delete(sl, 0);
+			free(s);
+		} else {
+			return chain;
+		}
+	}
+	if(*items == 0) { free(chain); chain = 0; }
+	return chain;
+}
+
 /*
  * process_report_svn
  *
@@ -1326,16 +1328,14 @@ process_report_svn(connector *connection, char *command, file_node ***file, int 
 	file_node   *this_file;
 	struct tree_node  *found, find;
 	struct stat  local;
-	int          buffers, *buffer_commands, count, path_exists, try, x;
+	int          count, path_exists, try, x;
 	size_t       d, length, name_length, path_length, path_source_length;
-	char       **buffer, *command_start, *directory_end, *directory_start, *end;
+	char        *command_start, *directory_end, *directory_start, *end;
 	char        *item_end, *item_start, *marker, *name, next_command[BUFFER_UNIT];
 	char         path_source[MAXNAMLEN + 1], *start, *temp, temp_path[BUFFER_UNIT];
+	stringlist *buffered_commands = stringlist_new(16);
 
-	try = buffers = -1;
-	buffer = NULL;
-	buffer_commands = NULL;
-	new_buffer(&buffer, &buffer_commands, &buffers);
+	try = -1;
 
 	retry:
 
@@ -1469,13 +1469,7 @@ process_report_svn(connector *connection, char *command, file_node ***file, int 
 					name,
 					connection->revision);
 
-				length = strlen(buffer[buffers]);
-				strncat(buffer[buffers], next_command, COMMAND_BUFFER - length);
-
-				buffer_commands[buffers]++;
-
-				if (length > COMMAND_BUFFER_THRESHOLD)
-					new_buffer(&buffer, &buffer_commands, &buffers);
+				stringlist_add_dup(buffered_commands, next_command);
 			}
 
 			item_start = item_end + 1;
@@ -1485,23 +1479,15 @@ process_report_svn(connector *connection, char *command, file_node ***file, int 
 	}
 
 	/* Recursively process the command buffers. */
-
-	x = 0;
-	while (x <= buffers) {
-		if (buffer_commands[x]) {
-			connection->response_groups = 2 * buffer_commands[x];
-			process_report_svn(connection, buffer[x], file, file_count, file_max);
-
-			free(buffer[x]);
-			buffer[x] = NULL;
-		}
-
-		x++;
+	/* we pack up to 32KB worth of file requests into a single buffer */
+	char *chain;
+	size_t chain_count = 0;
+	while((chain = concat_stringlist(buffered_commands, BUFFER_UNIT, &chain_count))) {
+		connection->response_groups = 2 * chain_count;
+		process_report_svn(connection, chain, file, file_count, file_max);
+		free(chain);
 	}
-
-	if (buffer[0]) free(buffer[0]);
-	free(buffer_commands);
-	free(buffer);
+	stringlist_free(buffered_commands);
 }
 
 static char* craft_http_packet(const char *host, const char* url,
@@ -2152,21 +2138,17 @@ main(int argc, char **argv)
 	file_node        **file;
 	connector          connection = {0};
 
-	char **buffer, command[COMMAND_BUFFER + 1], *end;
+	char   command[COMMAND_BUFFER + 1], *end;
 	char  *md5, *path, *start, temp_buffer[BUFFER_UNIT], *value;
 	char   svn_version_path[255];
-	int    b, *buffer_commands, buffer_full, buffers;
+	int    b;
 	int    c, command_count;
 	int    f, f0, fd, file_count, file_max, length;
 
 	file = NULL;
-	buffers = -1;
-	buffer = NULL;
-	buffer_commands = NULL;
-	new_buffer(&buffer, &buffer_commands, &buffers);
 
 	file_count = command_count = 0;
-	buffer_full = f = f0 = length = 0;
+	f = f0 = length = 0;
 
 	file_max = BUFFER_UNIT;
 
@@ -2464,6 +2446,8 @@ main(int argc, char **argv)
 	/* Get additional file information not contained in the first report and store the
 	   commands in an array. */
 
+	stringlist *buffered_commands = stringlist_new(32);
+
 	for (f = 0; f < file_count; f++) {
 		if (connection.protocol == SVN)
 			snprintf(temp_buffer,
@@ -2494,36 +2478,29 @@ main(int argc, char **argv)
 		}
 
 		if (temp_buffer[0] != '\0') {
-			length += strlen(temp_buffer);
-			strncat(buffer[buffers], temp_buffer, COMMAND_BUFFER - length);
-			buffer_commands[buffers]++;
-
-			if ((connection.protocol >= HTTP) && (buffer_commands[buffers] > 95))
-				buffer_full = 1;
-
-			if ((connection.protocol == SVN) && (length > COMMAND_BUFFER_THRESHOLD))
-				buffer_full = 1;
-
-			if (buffer_full) {
-				new_buffer(&buffer, &buffer_commands, &buffers);
-				buffer_full = length = 0;
-			}
+			stringlist_add_dup(buffered_commands, temp_buffer);
 		}
 	}
 
 	/* Process the additional commands. */
 
-	for (f = f0 = b = 0; b <= buffers; b++) {
-		if (buffer_commands[b] == 0)
-			break;
+#define MAX_HTTP_REQUESTS_PER_PACKET 95
 
-		connection.response_groups = buffer_commands[b] * 2;
+	char *chain;
+	size_t chain_count = connection.protocol >= HTTP ? MAX_HTTP_REQUESTS_PER_PACKET : 0;
+	f = f0 = 0;
+	while ((chain = concat_stringlist(buffered_commands, BUFFER_UNIT, &chain_count))) {
+		size_t chain_items = chain_count;
+		chain_count = connection.protocol >= HTTP ? MAX_HTTP_REQUESTS_PER_PACKET : 0;
+		connection.response_groups = chain_items * 2;
 
 		if (connection.protocol >= HTTP)
-			process_command_http(&connection, buffer[b]);
+			process_command_http(&connection, chain);
 
 		if (connection.protocol == SVN)
-			process_command_svn(&connection, buffer[b], 0);
+			process_command_svn(&connection, chain, 0);
+
+		free(chain);
 
 		start = connection.response;
 		end = start + connection.response_length;
@@ -2531,7 +2508,7 @@ main(int argc, char **argv)
 		command[0] = '\0';
 		connection.response_groups = 0;
 
-		for (length = 0, c = 0; c < buffer_commands[b]; c++) {
+		for (length = 0, c = 0; c < chain_items; c++) {
 			while ((connection.protocol >= HTTP) && (f < file_count) && (file[f]->download == 0)) {
 				if (connection.verbosity > 1)
 					progress_indicator(&connection, file[f]->path, f, file_count);
@@ -2606,6 +2583,7 @@ main(int argc, char **argv)
 
 		f0 = f;
 	}
+	stringlist_free(buffered_commands);
 
 	if (connection.verbosity > 1)
 		while (f < file_count) {
