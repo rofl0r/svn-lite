@@ -10,7 +10,7 @@ PREFIX=/usr/local
 
 all: $(PROG)
 
-svnup.o: CPPFLAGS += -I. -DPREFIX=\"$(PREFIX)\"
+svnup.o: CPPFLAGS += -I.
 
 $(PROG): $(OBJS)
 	$(CC) $(CFLAGS) -o $@ $< $(LDFLAGS) $(LDADD)

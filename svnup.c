@@ -28,11 +28,6 @@
  *
  */
 
-#ifndef PREFIX
-#define PREFIX "/usr/local"
-#endif
-#define CONF_FILE_LOC PREFIX "/etc/svnup.conf"
-
 #include <sys/ioctl.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
@@ -74,7 +69,6 @@ typedef struct {
 	enum      { NONE, SVN, HTTP, HTTPS } protocol;
 	enum svn_job {
 		SVN_NONE = 0,
-		SVN_SVNUP,
 		SVN_CO,
 		SVN_LOG,
 		SVN_INFO,
@@ -147,15 +141,12 @@ static file_node	*new_file_node(file_node ***, int *, int *);
 static void		 new_buffer(char ***, int **, int *);
 static int		 save_file(char *, char *, char *, int, int);
 static void		 save_known_file_list(connector *, file_node **, int);
-static void		 set_configuration_parameters(connector *, char *, size_t, const char *);
-static void		 load_configuration(connector *, char *, char *);
 static void		 create_directory(char *);
 static void		 process_report_svn(connector *, char *, file_node ***, int *, int *);
 static void		 process_report_http(connector *, file_node ***, int *file_count, int *);
 static void		 parse_additional_attributes(connector *, char *, char *, file_node *);
 static void		 get_files(connector *, char *, char *, file_node **, int, int);
 static void		 progress_indicator(connector *connection, char *, int, int);
-static void		 usage(char *);
 
 /* turn svn date string like "2020-11-10T09:23:51.711212Z" into "2020-11-10 09:23:51" */
 static char* sanitize_svn_date(char *date) {
@@ -1292,128 +1283,6 @@ static int protocol_from_str(char* line, connector *connection) {
 }
 
 /*
- * set_configuration_parameters
- *
- * Procedure that parses a line of text from the config file, allocates
- * space and stores the values.
- */
-
-static void
-set_configuration_parameters(connector *connection, char *buffer, size_t length, const char *section)
-{
-	uint32_t  x;
-	char     *bracketed_section, *item, *line;
-
-	if ((bracketed_section = (char *)malloc(strlen(section) + 4)) == NULL)
-		err(EXIT_FAILURE, "set_configuration bracketed_section malloc");
-
-	snprintf(bracketed_section, strlen(section) + 4, "[%s]\n", section);
-
-	if ((item = strstr(buffer, bracketed_section)) != NULL) {
-		item += strlen(bracketed_section);
-
-		while ((line = strsep(&item, "\n"))) {
-			if ((strlen(line) == 0) || (line[0] == '['))
-				break;
-
-			if (line[0] == '#')
-				continue;
-
-			if (0) {
-			} else if (starts_with_lit(line, "host=")) {
-				line += 5;
-				if ((connection->address = (char *)realloc(connection->address, item - line + 1)) == NULL)
-					err(EXIT_FAILURE, "set_configuration bracketed_section realloc");
-
-				memcpy(connection->address, line, item - line);
-				continue;
-			} else if (starts_with_lit(line, "branch=")) {
-				line += 7;
-				while (*line == '/') line++;
-
-				if ((connection->branch = (char *)realloc(connection->branch, item - line + 1)) == NULL)
-					err(EXIT_FAILURE, "set_configuration connection->branch realloc");
-
-				memcpy(connection->branch, line, item - line);
-				continue;
-			} else if (starts_with_lit(line, "target=")) {
-				line += 7;
-				if ((connection->path_target = (char *)realloc(connection->path_target, item - line + 1)) == NULL)
-					err(EXIT_FAILURE, "set_configuration connection->path_target realloc");
-
-				memcpy(connection->path_target, line, item - line);
-				continue;
-			} else if (starts_with_lit(line, "work_directory=")) {
-				line += 15;
-				if ((connection->path_work = (char *)realloc(connection->path_work, item - line + 1)) == NULL)
-					err(EXIT_FAILURE, "set_configuration connection->path_work realloc");
-
-				memcpy(connection->path_work, line, item - line);
-				continue;
-			} else if (starts_with_lit(line, "protocol=")) {
-				line += 9;
-				protocol_from_str(line, connection);
-				continue;
-			} else if (starts_with_lit(line, "port=")) {
-				connection->port = strtol(line + 5, (char **)NULL, 10);
-				continue;
-			} else if (starts_with_lit(line, "verbosity=")) {
-				connection->verbosity = strtol(line + 10, (char **)NULL, 10);
-				continue;
-			} else if (starts_with_lit(line, "trim_tree=")) {
-				connection->trim_tree = strtol(line + 10, (char **)NULL, 10);
-				continue;
-			} else if (starts_with_lit(line, "extra_files=")) {
-				connection->extra_files = strtol(line + 12, (char **)NULL, 10);
-				continue;
-			}
-		}
-	}
-
-	for (x = 0; x < length; x++)
-		if (buffer[x] == '\0')
-			buffer[x] = '\n';
-
-	free(bracketed_section);
-}
-
-
-/*
- * load_configuration
- *
- * Procedure that loads the section options from svnup.conf
- */
-
-static void
-load_configuration(connector *connection, char *configuration_file, char *section)
-{
-	struct stat  file;
-	int          fd;
-	char        *buffer;
-
-	if (stat(configuration_file, &file) == -1)
-		err(EXIT_FAILURE, "Cannot find configuration file");
-
-	if ((buffer = (char *)malloc(file.st_size + 1)) == NULL)
-		err(EXIT_FAILURE, "load_configuration temp_buffer malloc");
-
-	if ((fd = open(configuration_file, O_RDONLY)) == -1)
-		err(EXIT_FAILURE, "Cannot read configuration file %s", configuration_file);
-
-	if (read(fd, buffer, file.st_size) != file.st_size)
-		err(EXIT_FAILURE, "Problem reading configuration file %s", configuration_file);
-
-	buffer[file.st_size] = '\0';
-	close(fd);
-
-	set_configuration_parameters(connection, buffer, file.st_size, "defaults");
-	set_configuration_parameters(connection, buffer, file.st_size, section);
-
-	free(buffer);
-	}
-
-
-/*
  * create_directory
  *
  * Procedure that checks for and creates a local directory if possible.
@@ -2104,127 +1973,6 @@ progress_indicator(connector *connection, char *path, int f, int file_count)
 	fprintf(stderr, "%s", temp_buffer);
 }
 
-
-/*
- * usage
- *
- * Procedure that prints a summary of command line options and exits.
- */
-
-static void
-usage(char *configuration_file)
-{
-	fprintf(stderr,
-		"Usage: svnup <section> [options]\n\n"
-		"  Please see %s for the list of <section> options.\n\n"
-		"  Options:\n"
-		"    -4  Use IPv4 addresses only.\n"
-		"    -6  Use IPv6 addresses only.\n"
-		"    -b  Override the specified section's Subversion branch.\n"
-		"    -f  Display the local files that do not exist in the repository.\n"
-		"    -h  Override the specified section's hostname or IP address.\n"
-		"    -k  Override the location where known file lists are stored.\n"
-		"    -l  Override the specified section's destination directory.\n"
-		"    -o  Override the specified section's default port.\n"
-		"    -p  Override the specified section's protocol (svn, http, https).\n"
-		"    -r  The revision number to retreive (defaults to the branch's\n"
-		"          most recent revision if this option is not specified).\n"
-		"    -t  Remove all local files that are not found in the repository.\n"
-		"          Note: this will remove files in directories like /usr/ports/distfiles/\n"
-		"          and /usr/src/sys/amd64/conf/.  Proceed with caution.\n"
-		"    -v  How verbose the output should be (0 = no output, 1 = the default\n"
-		"          normal output, 2 = also show a progress indicator, 3 = also show\n"
-		"          command and response text plus command response parsing codes).\n"
-		"    -V  Display svnup's version number and exit.\n"
-		"\n", configuration_file);
-	exit(EXIT_FAILURE);
-}
-
-static void
-getopts_svnup(int argc, char **argv, char *configuration_file, connector *connection)
-{
-	int port_override = 0, option, x;
-
-	if (argc < 2)
-		usage(configuration_file);
-
-	if (argv[1][0] == '-') {
-		if (argv[1][1] == 'V') {
-			fprintf(stdout, "svnup version %s\n", SVNUP_VERSION);
-			exit(EXIT_FAILURE);
-			}
-		else usage(configuration_file);
-	} else {
-		if (strncmp(argv[1], "default", 7) == 0)
-			errx(EXIT_FAILURE, "Invalid section.  Please use one defined in svnup.conf.");
-
-		load_configuration(connection, configuration_file, argv[1]);
-		optind = 2;
-	}
-
-	while ((option = getopt(argc, argv, "46Vftb:h:k:l:o:p:r:v:")) != -1) {
-		switch (option) {
-			case '4':
-				connection->family = AF_INET;
-				break;
-			case '6':
-				connection->family = AF_INET6;
-				break;
-			case 'b':
-				x = (optarg[0] == '/' ? 1 : 0);
-				connection->branch = (char *)malloc(strlen(optarg) - x + 1);
-				memcpy(connection->branch, optarg + x, strlen(optarg) - x + 1);
-				break;
-			case 'f':
-				connection->extra_files = 1;
-				break;
-			case 'h':
-				connection->address = strdup(optarg);
-				break;
-			case 'k':
-				connection->path_work = strdup(optarg);
-				break;
-			case 'l':
-				connection->path_target = realloc(connection->path_target, strlen(optarg) + 2);
-				snprintf(connection->path_target, strlen(optarg) + 1, "%s", optarg);
-				break;
-			case 'o':
-				port_override = strtol(optarg, (char **)NULL, 10);
-				break;
-			case 'p':
-				if (strncasecmp(optarg, "svn", 3) == 0) {
-					connection->protocol = SVN;
-					connection->port = 3690;
-				}
-
-				if (strncasecmp(optarg, "http", 4) == 0) {
-					connection->protocol = HTTP;
-					connection->port = 80;
-				}
-
-				if (strncasecmp(optarg, "https", 5) == 0) {
-					connection->protocol = HTTPS;
-					connection->port = 443;
-				}
-				break;
-			case 'r':
-				connection->revision = strtol(optarg, (char **)NULL, 10);
-				break;
-			case 't':
-				connection->trim_tree = 1;
-				break;
-			case 'v':
-				connection->verbosity = strtol(optarg, (char **)NULL, 10);
-				break;
-		}
-	}
-
-	if (port_override)
-		connection->port = port_override;
-
-	connection->job = SVN_SVNUP;
-}
-
 static void
 usage_svn(char *arg0) {
 	fprintf(stderr,
@@ -2404,7 +2152,7 @@ main(int argc, char **argv)
 	file_node        **file;
 	connector          connection = {0};
 
-	char **buffer, command[COMMAND_BUFFER + 1], *configuration_file, *end;
+	char **buffer, command[COMMAND_BUFFER + 1], *end;
 	char  *md5, *path, *start, temp_buffer[BUFFER_UNIT], *value;
 	char   svn_version_path[255];
 	int    b, *buffer_commands, buffer_full, buffers;
@@ -2420,8 +2168,6 @@ main(int argc, char **argv)
 	file_count = command_count = 0;
 	buffer_full = f = f0 = length = 0;
 
-	configuration_file = strdup(CONF_FILE_LOC);
-
 	file_max = BUFFER_UNIT;
 
 	if ((file = (file_node **)malloc(file_max * sizeof(file_node **))) == NULL)
@@ -2434,22 +2180,7 @@ main(int argc, char **argv)
 	connection.family = AF_UNSPEC;
 	connection.protocol = HTTPS;
 
-	if(!strcmp(basename(argv[0]), "svn"))
-		getopts_svn(argc, argv, &connection);
-	else
-		getopts_svnup(argc, argv, configuration_file, &connection);
-
-	if (connection.job == SVN_SVNUP) {
-		if (connection.path_work == NULL)
-			if ((connection.path_work = strdup("/var/db/svnup")) == NULL)
-				errx(EXIT_FAILURE, "Cannot set connection.path_work");
-
-		if (connection.address == NULL)
-			errx(EXIT_FAILURE, "\nNo mirror specified.  Please uncomment the preferred SVN mirror in %s.\n\n", configuration_file);
-
-		if ((connection.branch == NULL) || (connection.path_target == NULL))
-			usage(configuration_file);
-	}
+	getopts_svn(argc, argv, &connection);
 
 	/* Create the destination directories if they doesn't exist. */
 
