@@ -416,7 +416,10 @@ find_response_end(int protocol, char *start, char *end)
 static void
 reset_connection(connector *connection)
 {
-	struct addrinfo hints, *start, *temp;
+	struct addrinfo hints = {
+		.ai_family = connection->family,
+		.ai_socktype = SOCK_STREAM,
+	}, *start, *temp;
 	int             error, option;
 	char            type[10];
 
@@ -425,10 +428,6 @@ reset_connection(connector *connection)
 			if (errno != EBADF) err(EXIT_FAILURE, "close_connection");
 
 	snprintf(type, sizeof(type), "%d", connection->port);
-
-	bzero(&hints, sizeof(hints));
-	hints.ai_family = connection->family;
-	hints.ai_socktype = SOCK_STREAM;
 
 	if ((error = getaddrinfo(connection->address, type, &hints, &start)))
 		errx(EXIT_FAILURE, "%s", gai_strerror(error));
@@ -753,7 +752,8 @@ process_command_http(connector *connection, char *command)
 	bzero(connection->response, connection->response_blocks * BUFFER_UNIT + 1);
 	bzero(input, BUFFER_UNIT + 1);
 
-	reset_connection(connection);
+	if (try || connection->socket_descriptor == -1)
+		reset_connection(connection);
 	send_command(connection, command);
 
 	while (groups < connection->response_groups) {
@@ -1498,6 +1498,7 @@ static char* craft_http_packet(const char *host, const char* url,
 		"Host: %s\r\n"
 		"User-Agent: svnup-%s\r\n"
 		"Content-Type: text/xml\r\n"
+		"Connection: Keep-Alive\r\n"
 		"DAV: http://subversion.tigris.org/xmlns/dav/svn/depth\r\n"
 		"DAV: http://subversion.tigris.org/xmlns/dav/svn/mergeinfo\r\n"
 		"DAV: http://subversion.tigris.org/xmlns/dav/svn/log-revprops\r\n"
@@ -2133,10 +2134,17 @@ static void write_info_or_log(connector *connection) {
 int
 main(int argc, char **argv)
 {
+	connector connection = {
+		.response_blocks = 11264,
+		.verbosity = 1,
+		.family = AF_UNSPEC,
+		.protocol = HTTPS,
+		.socket_descriptor = -1,
+	};
+
 	struct stat        local;
 	struct tree_node  *data, *found, *next;
 	file_node        **file;
-	connector          connection = {0};
 
 	char   command[COMMAND_BUFFER + 1], *end;
 	char  *md5, *path, *start, temp_buffer[BUFFER_UNIT], *value;
@@ -2156,11 +2164,6 @@ main(int argc, char **argv)
 		err(EXIT_FAILURE, "process_directory source malloc");
 
 	command[0] = '\0';
-
-	connection.response_blocks = 11264;
-	connection.verbosity = 1;
-	connection.family = AF_UNSPEC;
-	connection.protocol = HTTPS;
 
 	getopts_svn(argc, argv, &connection);
 
