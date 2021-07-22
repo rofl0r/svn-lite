@@ -1060,8 +1060,9 @@ parse_response_item(connector *connection, char *end, int *count, char **item_st
 /*
  * confirm_md5
  *
- * Function that loads a local file and removes revision tags one at a time until
+ * Function that loads a local file and checks whether
  * the MD5 checksum matches that of the corresponding repository file
+ * returns 0 if it matches, 1 otherwise.
  */
 
 static int
