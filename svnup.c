@@ -100,6 +100,7 @@ typedef struct {
 	int       trim_tree;
 	int       extra_files;
 	int       verbosity;
+	char      inline_props;
 } connector;
 
 
@@ -112,7 +113,7 @@ typedef struct {
 	char     *href;
 	char     *path;
 	uint64_t  raw_size;
-	uint64_t  size;
+	int64_t   size;
 } file_node;
 
 
@@ -838,6 +839,9 @@ process_command_http(connector *connection, char *command)
 				read_more = 1;
 				continue;
 			}
+
+			if(strstr(begin, "DAV: http://subversion.tigris.org/xmlns/dav/svn/inline-props"))
+				connection->inline_props = 1;
 
 			end += 4;
 
@@ -1653,12 +1657,14 @@ process_report_http(connector *connection, file_node ***file, int *file_count, i
 
 	snprintf(footer, sizeof footer,
 		"<S:update-report xmlns:S=\"svn:\">"
+			"%s"
 			"<S:src-path>/%s</S:src-path>"
 			"<S:target-revision>%d</S:target-revision>"
 			"<S:depth>unknown</S:depth>"
 			"<S:entry rev=\"%d\" depth=\"infinity\" start-empty=\"true\"></S:entry>"
 		"</S:update-report>\r\n"
 		,
+		connection->inline_props ? "<S:include-props>yes</S:include-props>" : "",
 		connection->branch,
 		connection->revision,
 		connection->revision
@@ -1675,6 +1681,9 @@ process_report_http(connector *connection, file_node ***file, int *file_count, i
 
 	start = connection->response;
 	end   = connection->response + connection->response_length;
+
+	int has_inline_props = !!strstr(start, "inline-props=\"true\">");
+	connection->inline_props = has_inline_props;
 
 	while ((start = strstr(start, "<S:add-directory")) && (start < end)) {
 		value = parse_xml_value(start, end, "D:href");
@@ -1705,11 +1714,27 @@ process_report_http(connector *connection, file_node ***file, int *file_count, i
 	start = connection->response;
 
 	while ((start = strstr(start, "<S:add-file")) && (start < end)) {
-		md5  = parse_xml_value(start, end, "V:md5-checksum");
-		href = parse_xml_value(start, end, "D:href");
+		this_file = new_file_node(file, file_count, file_max);
+
+		char *file_end = strstr(start, "</S:add-file>");
+		if(file_end) file_end += LIT_LEN("</S:add-file>");
+		else file_end = end;
+		if(has_inline_props) {
+			temp = strstr(start, "<S:set-prop name=\"svn:executable\">*</S:set-prop>");
+			if(temp && temp < file_end)
+				this_file->executable = 1;
+			temp = strstr(start, "<S:set-prop name=\"svn:special\">*</S:set-prop>");
+			if(temp && temp < file_end)
+				this_file->special = 1;
+			this_file->size = -1;
+		}
+		md5  = parse_xml_value(start, file_end, "V:md5-checksum");
+		href = parse_xml_value(start, file_end, "D:href");
 		temp = strstr(href, connection->trunk);
-		temp += strlen(connection->trunk);
-		path = strdup(temp);
+		if(temp < file_end) {
+			temp += strlen(connection->trunk);
+			path = strdup(temp);
+		} else path = 0;
 
 		/* Convert any hex encoded characters in the path. */
 
@@ -1724,12 +1749,11 @@ process_report_http(connector *connection, file_node ***file, int *file_count, i
 				d++;
 			}
 
-		this_file = new_file_node(file, file_count, file_max);
 		this_file->href = href;
 		this_file->path = path;
 		memcpy(this_file->md5, md5, 32);
 
-		start++;
+		start = file_end;
 	}
 }
 
@@ -1766,6 +1790,12 @@ parse_additional_attributes(connector *connection, char *start, char *end, file_
 	}
 }
 
+static int get_content_length(const char *start, const char *end, size_t *len) {
+	char *p = strstr(start, "Content-Length: ");
+	if(!p || p > end) return 0;
+	*len = strtol(p + LIT_LEN("Content-Length: "), NULL, 10);
+	return 1;
+}
 
 /*
  * get_files
@@ -1803,6 +1833,13 @@ get_files(connector *connection, char *command, char *path_target, file_node **f
 
 			if(!(end = strstr(start, "\r\n\r\n")))
 				goto increment_tries;
+
+			if(file[x]->size == -1LL) {
+				size_t ns;
+				if(!get_content_length(start, end, &ns))
+					errx(EXIT_FAILURE, "failed to extract Content-Length!");
+				file[x]->size = ns;
+			}
 			end += 4;
 			file[x]->raw_size = file[x]->size + (end - start);
 			start = end + file[x]->size;
@@ -2495,6 +2532,9 @@ main(int argc, char **argv)
 
 	stringlist *buffered_commands = stringlist_new(32);
 
+	/* only retrieve additional information about files
+	   if we haven't received inline props already */
+	if (!connection.inline_props)
 	for (f = 0; f < file_count; f++) {
 		temp_buffer[0] = '\0';
 
