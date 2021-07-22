@@ -2191,6 +2191,50 @@ static void read_revision_file(connector *connection, char *svn_version_path) {
 	fclose(f);
 }
 
+static void load_known_files(connector *connection) {
+	struct stat local;
+	int fd;
+	char *md5, *value, *path;
+	size_t length;
+	struct tree_node *data;
+
+	length = strlen(connection->path_work) + MAXNAMLEN;
+
+	connection->known_files_old = (char *)malloc(length);
+	connection->known_files_new = (char *)malloc(length);
+
+	snprintf(connection->known_files_old, length, "%s/known_files", connection->path_work);
+	snprintf(connection->known_files_new, length, "%s/known_files.new", connection->path_work);
+
+	if (stat(connection->known_files_old, &local) != -1) {
+		connection->known_files_size = local.st_size;
+
+		if ((connection->known_files = (char *)malloc(connection->known_files_size + 1)) == NULL)
+			err(EXIT_FAILURE, "connection.known_files malloc");
+
+		if ((fd = open(connection->known_files_old, O_RDONLY)) == -1)
+			err(EXIT_FAILURE, "open file (%s)", connection->known_files_old);
+
+		if (read(fd, connection->known_files, connection->known_files_size) != connection->known_files_size)
+			err(EXIT_FAILURE, "read file error (%s)", connection->known_files_old);
+
+		connection->known_files[connection->known_files_size] = '\0';
+		close(fd);
+		value = connection->known_files;
+
+		while (*value) {
+			md5 = value;
+			path = strchr(value, '\t') + 1;
+			value = strchr(path, '\n');
+			*value++ = '\0';
+			md5[32] = '\0';
+			data = (struct tree_node *)malloc(sizeof(struct tree_node));
+			data->path = strdup(path);
+			data->md5 = strdup(md5);
+			RB_INSERT(tree_known_files, &known_files, data);
+		}
+	}
+}
 
 /*
  * main
@@ -2209,7 +2253,6 @@ main(int argc, char **argv)
 		.socket_descriptor = -1,
 	};
 
-	struct stat        local;
 	struct tree_node  *data, *found, *next;
 	file_node        **file;
 
@@ -2253,49 +2296,12 @@ main(int argc, char **argv)
 	/* Load the list of known files and MD5 signatures, if they exist. */
 
 	if(connection.path_work) {
+		load_known_files(&connection);
 
-	length = strlen(connection.path_work) + MAXNAMLEN;
-
-	connection.known_files_old = (char *)malloc(length);
-	connection.known_files_new = (char *)malloc(length);
-
-	snprintf(connection.known_files_old, length, "%s/known_files", connection.path_work);
-	snprintf(connection.known_files_new, length, "%s/known_files.new", connection.path_work);
-
-	if (stat(connection.known_files_old, &local) != -1) {
-		connection.known_files_size = local.st_size;
-
-		if ((connection.known_files = (char *)malloc(connection.known_files_size + 1)) == NULL)
-			err(EXIT_FAILURE, "main connection.known_files malloc");
-
-		if ((fd = open(connection.known_files_old, O_RDONLY)) == -1)
-			err(EXIT_FAILURE, "open file (%s)", connection.known_files_old);
-
-		if (read(fd, connection.known_files, connection.known_files_size) != connection.known_files_size)
-			err(EXIT_FAILURE, "read file error (%s)", connection.known_files_old);
-
-		connection.known_files[connection.known_files_size] = '\0';
-		close(fd);
-		value = connection.known_files;
-
-		while (*value) {
-			md5 = value;
-			path = strchr(value, '\t') + 1;
-			value = strchr(path, '\n');
-			*value++ = '\0';
-			md5[32] = '\0';
-			data = (struct tree_node *)malloc(sizeof(struct tree_node));
-			data->path = strdup(path);
-			data->md5 = strdup(md5);
-			RB_INSERT(tree_known_files, &known_files, data);
-		}
-	}
-
-	if ((connection.extra_files) || (connection.trim_tree))
-		find_local_files_and_directories(connection.path_target, "", 1);
-	else
-		find_local_files_and_directories(connection.path_target, "", 0);
-
+		if ((connection.extra_files) || (connection.trim_tree))
+			find_local_files_and_directories(connection.path_target, "", 1);
+		else
+			find_local_files_and_directories(connection.path_target, "", 0);
 	}
 
 	/* Initialize connection with the server and get the latest revision number. */
