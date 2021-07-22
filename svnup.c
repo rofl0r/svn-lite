@@ -139,7 +139,6 @@ static char		*process_command_http(connector *, char *);
 static char		*parse_xml_value(char *, char *, const char *);
 static void		 parse_response_group(connector *, char **, char **);
 static int		 parse_response_item(connector *, char *, int *, char **, char **);
-static int		 confirm_md5(char *, char *);
 static file_node	*new_file_node(file_node ***, int *, int *);
 static int		 save_file(char *, char *, char *, int, int);
 static void		 save_known_file_list(connector *, file_node **, int);
@@ -1061,75 +1060,38 @@ parse_response_item(connector *connection, char *end, int *count, char **item_st
 	return (ok);
 }
 
-
-/*
- * confirm_md5
- *
- * Function that loads a local file and checks whether
- * the MD5 checksum matches that of the corresponding repository file
- * returns 0 if it matches, 1 otherwise.
- */
-
-static int
-confirm_md5(char *md5, char *file_path_target)
-{
-	struct stat file;
-	int         fd, mismatch;
-	size_t      temp_size, link_size;
-	char       *buffer, *eol, *link, *start, *value;
-	char        md5_check[33];
-
-	mismatch = 1;
-
-	if (lstat(file_path_target, &file) != -1) {
-		if (S_ISLNK(file.st_mode)) {
-			/* The MD5 sum in the report is the MD5 sum of "link [filename]". */
-
-			link_size = strlen(file_path_target) + file.st_size + 16;
-			if ((link = (char *)malloc(link_size)) == NULL)
-				err(EXIT_FAILURE, "confirm_md5 link malloc");
-
-			bzero(link, link_size);
-			snprintf(link, 6, "link  ");
-			readlink(file_path_target, link + 5, link_size - 5);
-
-			mismatch = strncmp(md5, md5sum(link, strlen(link), md5_check), 33);
-			free(link);
-		} else {
-			/* Load the file into memory. */
-
-			if ((buffer = (char *)malloc(file.st_size + 1)) == NULL)
-				err(EXIT_FAILURE, "confirm_md5 temp_buffer malloc");
-
-			if ((fd = open(file_path_target, O_RDONLY)) == -1)
-				err(EXIT_FAILURE, "read file (%s):", file_path_target);
-
-			if (read(fd, buffer, file.st_size) != file.st_size)
-				err(EXIT_FAILURE, "read file (%s): file changed", file_path_target);
-
-			close(fd);
-
-			buffer[file.st_size] = '\0';
-			temp_size = file.st_size;
-			start = buffer;
-
-			mismatch = strncmp(md5, md5sum(buffer, temp_size, md5_check), 33);
-
-			free(buffer);
-		}
-	}
-
-	return (mismatch);
-}
-
+/* checking whether the md5 of file as retrieved from online repo
+   matches the value in known_files list. if the file isn't in
+   known_files then there's no point checking against the
+   filesystem either, as it shouldn't exist there.
+   the only case where it could be interesting to check against
+   a filesystem copy would be the case of a huge repo checked
+   out with a different client (i.e. no known_files file exists
+   yet), and the user being unwilling to check
+   out every single file again - but in that case he could just
+   produce the file known_files with a script that runs md5sum
+   over all files.
+*/
 static void check_md5(connector *connection, file_node *file) {
 	char buf[4096];
+	struct tree_node  *data, *next;
 	if(file->md5[0] && !file->md5_checked) {
-		snprintf(buf, sizeof buf, "%s%s",
-			connection->path_target,
-			strip_rev_root_stub(connection, file->path));
-		file->download = confirm_md5(file->md5, buf);
 		file->md5_checked = 1;
+		file->download = 1; /* default to "md5 doesn't match local file" */
+		snprintf(buf, sizeof buf, "%s",
+			strip_rev_root_stub(connection, file->path));
+
+		for (data = RB_MIN(tree_known_files, &known_files); data != NULL; data = next) {
+			if(!strcmp(data->path, buf)) {
+				if(!memcmp(data->md5, file->md5, 32)) {
+					file->download = 0;
+					return;
+				}
+				/* file encountered in known_files, but md5 mismatch */
+				break;
+			}
+			next = RB_NEXT(tree_known_files, head, data);
+		}
 	}
 }
 
