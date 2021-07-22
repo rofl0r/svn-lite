@@ -1730,11 +1730,12 @@ process_report_http(connector *connection, file_node ***file, int *file_count, i
 		}
 		md5  = parse_xml_value(start, file_end, "V:md5-checksum");
 		href = parse_xml_value(start, file_end, "D:href");
-		temp = strstr(href, connection->trunk);
-		if(temp < file_end) {
-			temp += strlen(connection->trunk);
-			path = strdup(temp);
-		} else path = 0;
+		if(connection->trunk[0] == 0)
+			temp = href;
+		else
+			temp = strstr(href, connection->trunk);
+		temp += strlen(connection->trunk);
+		path = strdup(temp);
 
 		/* Convert any hex encoded characters in the path. */
 
