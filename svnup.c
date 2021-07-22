@@ -630,7 +630,8 @@ process_command_svn(connector *connection, const char *command, unsigned int exp
 		connection->response_length += bytes_read;
 
 		if (connection->response_length > connection->response_blocks * BUFFER_UNIT) {
-			connection->response_blocks += 1;
+			while(connection->response_length > connection->response_blocks * BUFFER_UNIT)
+				connection->response_blocks += (connection->response_blocks/2);
 			connection->response = (char *)realloc(
 				connection->response,
 				connection->response_blocks * BUFFER_UNIT + 1);
@@ -786,13 +787,33 @@ process_command_http(connector *connection, char *command)
 					BUFFER_UNIT);
 
 			if (connection->response_length + bytes_read > connection->response_blocks * BUFFER_UNIT) {
-				connection->response_blocks += 1;
+				while(connection->response_length + bytes_read > connection->response_blocks * BUFFER_UNIT)
+					connection->response_blocks += (connection->response_blocks/2);
+
+			#define SAVE_VAR(X) \
+				intptr_t X ## _offset; \
+				int was_null_ ## X = 0; \
+				if(X) X ## _offset = X - connection->response; \
+				else was_null_ ## X = 1;
+
+				SAVE_VAR(marker2);
+				SAVE_VAR(begin);
+				SAVE_VAR(end);
+
 				connection->response = (char *)realloc(
 					connection->response,
 					connection->response_blocks * BUFFER_UNIT + 1);
 
 				if (connection->response == NULL)
 					err(EXIT_FAILURE, "process_command_http realloc");
+
+			#define RESTORE_VAR(X) \
+				if (!was_null_ ## X) \
+					X = connection->response + X ## _offset;
+
+				RESTORE_VAR(marker2);
+				RESTORE_VAR(begin);
+				RESTORE_VAR(end);
 			}
 
 			if (bytes_read < 0) {
@@ -2264,7 +2285,7 @@ int
 main(int argc, char **argv)
 {
 	connector connection = {
-		.response_blocks = 11264,
+		.response_blocks = 16,
 		.verbosity = 1,
 		.family = AF_UNSPEC,
 		.protocol = HTTPS,
