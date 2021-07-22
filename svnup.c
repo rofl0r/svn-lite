@@ -105,6 +105,7 @@ typedef struct {
 
 typedef struct {
 	char      md5[33];
+	char      md5_checked;
 	char      download;
 	char      executable;
 	char      special;
@@ -1117,6 +1118,16 @@ confirm_md5(char *md5, char *file_path_target)
 	return (mismatch);
 }
 
+static void check_md5(connector *connection, file_node *file) {
+	char buf[4096];
+	if(file->md5[0] && !file->md5_checked) {
+		snprintf(buf, sizeof buf, "%s%s",
+			connection->path_target,
+			strip_rev_root_stub(connection, file->path));
+		file->download = confirm_md5(file->md5, buf);
+		file->md5_checked = 1;
+	}
+}
 
 /*
  * new_file_node
@@ -2448,6 +2459,10 @@ main(int argc, char **argv)
 		fprintf(stderr, "# Known files directory: %s\n", connection.path_work);
 	}
 
+	/* at this point, we're checking out a revision, so we request report(s) containing
+	   the names of all files and dirs in that revision, including some additional
+	   properties that vary among protocol and features of the server */
+
 	if (connection.protocol == SVN) {
 		connection.response_groups = 2;
 
@@ -2468,12 +2483,21 @@ main(int argc, char **argv)
 			exit(EXIT_FAILURE);
 	}
 
+	/* if we have received the md5 checksum already, filter out the files that
+	   exist locally and have a matching checksum, so we don't need to download them,
+	   nor request additional properties about them. */
+	for (f = 0; f < file_count; ++f) {
+		check_md5(&connection, file[f]);
+	}
+
 	/* Get additional file information not contained in the first report and store the
 	   commands in a list. */
 
 	stringlist *buffered_commands = stringlist_new(32);
 
 	for (f = 0; f < file_count; f++) {
+		temp_buffer[0] = '\0';
+
 		if (connection.protocol == SVN)
 			snprintf(temp_buffer,
 				BUFFER_UNIT,
@@ -2483,15 +2507,7 @@ main(int argc, char **argv)
 				connection.revision);
 
 		if (connection.protocol >= HTTP) {
-			snprintf(temp_buffer,
-				BUFFER_UNIT,
-				"%s%s",
-				connection.path_target,
-				strip_rev_root_stub(&connection, file[f]->path));
-
-			if (confirm_md5(file[f]->md5, temp_buffer)) {
-				file[f]->download = 1;
-
+			if (file[f]->download) {
 				snprintf(temp_buffer,
 					BUFFER_UNIT,
 					"PROPFIND %s HTTP/1.1\r\n"
@@ -2499,7 +2515,7 @@ main(int argc, char **argv)
 					"Host: %s\r\n\r\n",
 					file[f]->href,
 					connection.address);
-			} else temp_buffer[0] = '\0';
+			}
 		}
 
 		if (temp_buffer[0] != '\0') {
@@ -2558,18 +2574,6 @@ main(int argc, char **argv)
 
 			parse_additional_attributes(&connection, start, end, file[f]);
 
-			if (file[f]->download == 0) {
-				/* can only happen on SVN protocol */
-				snprintf(temp_buffer,
-					BUFFER_UNIT,
-					"%s%s",
-					connection.path_target,
-					file[f]->path);
-
-				if (confirm_md5(file[f]->md5, temp_buffer))
-					file[f]->download = 1;
-			}
-
 			if (connection.verbosity > 1)
 				progress_indicator(&connection, file[f]->path, f, file_count);
 
@@ -2578,6 +2582,12 @@ main(int argc, char **argv)
 		}
 	}
 	stringlist_free(buffered_commands);
+
+	/* check md5 again for those still unchecked; in case we only retrieved
+	   the checked-in file's checksum right now via additional attributes. */
+	for (f = 0; f < file_count; ++f) {
+		check_md5(&connection, file[f]);
+	}
 
 	buffered_commands = stringlist_new(64);
 
