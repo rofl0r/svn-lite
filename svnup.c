@@ -2131,12 +2131,18 @@ static void write_info_or_log(connector *connection) {
 	}
 }
 
+static const char* protocol_to_string(int proto) {
+	static const char proto_strmap[][6] = {
+		[SVN] = "svn", [HTTP] = "http", [HTTPS] = "https",
+	};
+	return proto >= SVN && proto <= HTTPS ? proto_strmap[proto] : NULL;
+}
+
 static void save_revision_file(connector *connection, char *svn_version_path) {
 	FILE *f;
 	if (!(f = fopen(svn_version_path, "w")))
 		err(EXIT_FAILURE, "write file failure %s", svn_version_path);
-	int pr = connection->protocol;
-	char *ps = pr == SVN ? "svn" : pr == HTTP ? "http" : "https";
+	const char *ps = protocol_to_string(connection->protocol);
 	fprintf(f, "rev=%u\n", connection->revision);
 	fprintf(f, "url=%s://%s/%s\n", ps, connection->address, connection->branch);
 	fprintf(f, "date=%s\n", connection->commit_date ? connection->commit_date : "");
@@ -2431,24 +2437,7 @@ main(int argc, char **argv)
 		printf("# Revision: %d\n", connection.revision);
 
 	if (connection.verbosity > 1) {
-		fprintf(stderr, "# Protocol: ");
-
-		switch (connection.protocol) {
-			case HTTP:
-				fprintf(stderr, "http\n");
-				break;
-			case HTTPS:
-				fprintf(stderr, "https\n");
-				break;
-			case SVN:
-				fprintf(stderr, "svn\n");
-				break;
-			default:
-				fprintf(stderr, "unknown\n");
-				err(EXIT_FAILURE, "Unknown protocol.  Please specify one (http, https or svn).");
-				break;
-		}
-
+		fprintf(stderr, "# Protocol: %s\n", protocol_to_string(connection.protocol));
 		fprintf(stderr, "# Address: %s\n", connection.address);
 		fprintf(stderr, "# Port: %d\n", connection.port);
 		fprintf(stderr, "# Branch: %s\n", connection.branch);
