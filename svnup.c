@@ -2454,7 +2454,7 @@ main(int argc, char **argv)
 	}
 
 	/* Get additional file information not contained in the first report and store the
-	   commands in an array. */
+	   commands in a list. */
 
 	stringlist *buffered_commands = stringlist_new(32);
 
@@ -2492,7 +2492,9 @@ main(int argc, char **argv)
 		}
 	}
 
-	/* Process the additional commands. */
+	/* Process the additional commands to retrieve extended attributes.
+	   In case of SVN, this includes the md5 checksum and special(i.e. symlink)
+	   and executable properties, for HTTP only the latter 2 plus filesize. */
 
 #define MAX_HTTP_REQUESTS_PER_PACKET 95
 
@@ -2519,7 +2521,11 @@ main(int argc, char **argv)
 		connection.response_groups = 0;
 
 		for (length = 0, c = 0; c < chain_items; c++) {
-			while ((connection.protocol >= HTTP) && (f < file_count) && (file[f]->download == 0)) {
+			if (connection.protocol >= HTTP)
+			while (f < file_count && file[f]->download == 0) {
+				/* on http, skip files that already had their md5 checked,
+				   therefore no PROPFIND request was submitted,
+				   so they're not in the chain */
 				if (connection.verbosity > 1)
 					progress_indicator(&connection, file[f]->path, f, file_count);
 
@@ -2538,6 +2544,7 @@ main(int argc, char **argv)
 			parse_additional_attributes(&connection, start, end, file[f]);
 
 			if (file[f]->download == 0) {
+				/* can only happen on SVN protocol */
 				snprintf(temp_buffer,
 					BUFFER_UNIT,
 					"%s%s",
@@ -2548,58 +2555,63 @@ main(int argc, char **argv)
 					file[f]->download = 1;
 			}
 
-			if (file[f]->download) {
-				connection.response_groups += 2;
-
-				if (connection.protocol >= HTTP)
-					snprintf(temp_buffer,
-						BUFFER_UNIT,
-						"GET %s HTTP/1.1\r\n"
-						"Host: %s\r\n"
-						"Connection: Keep-Alive\r\n\r\n",
-						file[f]->href,
-						connection.address);
-
-				if (connection.protocol == SVN)
-					snprintf(temp_buffer,
-						BUFFER_UNIT,
-						"( get-file ( %zd:%s ( %d ) false true false ) )\n",
-						strlen(file[f]->path),
-						file[f]->path,
-						connection.revision);
-
-				length += strlen(temp_buffer);
-
-				strncat(command, temp_buffer, COMMAND_BUFFER - length);
-			}
-
 			if (connection.verbosity > 1)
 				progress_indicator(&connection, file[f]->path, f, file_count);
 
 			start = end + 1;
 			f++;
 		}
+	}
+	stringlist_free(buffered_commands);
 
-		if (connection.response_groups)
-			get_files(&connection,
-				command,
-				connection.path_target,
-				file,
-				f0,
-				f - 1);
+	buffered_commands = stringlist_new(64);
+
+	for (f=0; f < file_count; ++f) {
+		if (file[f]->download) {
+			if (connection.protocol >= HTTP)
+				snprintf(temp_buffer,
+					BUFFER_UNIT,
+					"GET %s HTTP/1.1\r\n"
+					"Host: %s\r\n"
+					"Connection: Keep-Alive\r\n\r\n",
+					file[f]->href,
+					connection.address);
+
+			if (connection.protocol == SVN)
+				snprintf(temp_buffer,
+					BUFFER_UNIT,
+					"( get-file ( %zd:%s ( %d ) false true false ) )\n",
+					strlen(file[f]->path),
+					file[f]->path,
+					connection.revision);
+
+			stringlist_add_dup(buffered_commands, temp_buffer);
+		}
+	}
+
+	/* download the actual files missing from tree */
+	chain_count = connection.protocol >= HTTP ? MAX_HTTP_REQUESTS_PER_PACKET : 0;
+	f = f0 = 0;
+	while ((chain = concat_stringlist(buffered_commands, BUFFER_UNIT, &chain_count))) {
+		size_t chain_items = chain_count;
+		size_t file_incs = 0;
+		chain_count = connection.protocol >= HTTP ? MAX_HTTP_REQUESTS_PER_PACKET : 0;
+		connection.response_groups = chain_items * 2;
+
+		while (f < file_count && file_incs < chain_items) {
+			if(file[f]->download != 0) ++file_incs;
+			++f;
+		}
+		get_files(&connection, chain, connection.path_target,
+				file, f0, f - 1);
 
 		if ((connection.verbosity > 1) && (f < file_count))
 			progress_indicator(&connection, file[f]->path, f, file_count);
 
 		f0 = f;
+		free(chain);
 	}
 	stringlist_free(buffered_commands);
-
-	if (connection.verbosity > 1)
-		while (f < file_count) {
-			progress_indicator(&connection, file[f]->path, f, file_count);
-			f++;
-		}
 
 	save_known_file_list(&connection, file, file_count);
 
