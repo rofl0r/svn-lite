@@ -1773,6 +1773,7 @@ get_files(connector *connection, char *command, char *path_target, file_node **f
 
 	try = 0;
 	retry:
+	if (try) reset_connection(connection);
 
 	raw_size = 0;
 
@@ -1785,7 +1786,12 @@ get_files(connector *connection, char *command, char *path_target, file_node **f
 			if ((file[x] == NULL) || (file[x]->download == 0))
 				continue;
 
-			end = strstr(start, "\r\n\r\n") + 4;
+			if(start == connection->response + connection->response_length)
+				goto increment_tries;
+
+			if(!(end = strstr(start, "\r\n\r\n")))
+				goto increment_tries;
+			end += 4;
 			file[x]->raw_size = file[x]->size + (end - start);
 			start = end + file[x]->size;
 			raw_size += file[x]->raw_size;
@@ -1847,6 +1853,7 @@ get_files(connector *connection, char *command, char *path_target, file_node **f
 		temp_end = end;
 
 		if (check_command_success(connection->protocol, &start, &temp_end)) {
+		increment_tries:;
 			if (++try > 5)
 				errx(EXIT_FAILURE, "Error in get_files.  Quitting.");
 
