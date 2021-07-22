@@ -2131,6 +2131,51 @@ static void write_info_or_log(connector *connection) {
 	}
 }
 
+static void read_revision_file(connector *connection, char *svn_version_path) {
+	FILE *f = fopen(svn_version_path, "r");
+	char buf[1024];
+	int in_log = 0;
+	if(!f) errx(EXIT_FAILURE, "couldn't open %s", svn_version_path);
+	while(fgets(buf, sizeof buf, f)) {
+		if(in_log) {
+			size_t l = strlen(connection->commit_msg);
+			connection->commit_msg = realloc(connection->commit_msg, l + 1 + sizeof buf);
+			if(l && connection->commit_msg[l-1] == '\n');
+			else { connection->commit_msg[l] = '\n'; ++l; }
+			char *p = strchr(buf, '\n');
+			if(p) *p = 0;
+			memcpy(connection->commit_msg+l, buf, strlen(buf)+1);
+		} else if(!strncmp(buf, "rev=", 4)) {
+			unsigned rev = atoi(buf+4);
+			if(connection->revision && connection->revision != rev)
+				errx(EXIT_FAILURE, "no local date for selected revision available, got %u", rev);
+			connection->revision = rev;
+		} else if(!strncmp(buf, "date=", 5)) {
+			char *p = strchr(buf+5, '\n');
+			if(!p) errx(EXIT_FAILURE, "malformed file %s", svn_version_path);
+			*p = 0;
+			p = buf + 5;
+			if(*p)
+				connection->commit_date = strdup(p);
+		} else if(!strncmp(buf, "author=", 7)) {
+			char *p = strchr(buf+7, '\n');
+			if(!p) errx(EXIT_FAILURE, "malformed file %s", svn_version_path);
+			*p = 0;
+			p = buf+7;
+			if(*p)
+				connection->commit_author = strdup(p);
+		} else if(!strncmp(buf, "log=", 4)) {
+			/* log entry may span multiple lines, therefore is last in file */
+			char *p = strchr(buf+4, '\n');
+			if(p) *p = 0;
+			connection->commit_msg = malloc(strlen(buf+4)+1);
+			memcpy(connection->commit_msg, buf+4, strlen(buf+4)+1);
+			in_log = 1;
+		}
+	}
+	fclose(f);
+}
+
 
 /*
  * main
@@ -2184,48 +2229,7 @@ main(int argc, char **argv)
 	} else svn_version_path[0] = 0;
 
 	if(connection.protocol == NONE) {
-		FILE *f = fopen(svn_version_path, "r");
-		char buf[1024];
-		int in_log = 0;
-		if(!f) errx(EXIT_FAILURE, "couldn't open %s", svn_version_path);
-		while(fgets(buf, sizeof buf, f)) {
-			if(in_log) {
-				size_t l = strlen(connection.commit_msg);
-				connection.commit_msg = realloc(connection.commit_msg, l + 1 + sizeof buf);
-				if(l && connection.commit_msg[l-1] == '\n');
-				else { connection.commit_msg[l] = '\n'; ++l; }
-				char *p = strchr(buf, '\n');
-				if(p) *p = 0;
-				memcpy(connection.commit_msg+l, buf, strlen(buf)+1);
-			} else if(!strncmp(buf, "rev=", 4)) {
-				unsigned rev = atoi(buf+4);
-				if(connection.revision && connection.revision != rev)
-					errx(EXIT_FAILURE, "no local date for selected revision available, got %u", rev);
-				connection.revision = rev;
-			} else if(!strncmp(buf, "date=", 5)) {
-				char *p = strchr(buf+5, '\n');
-				if(!p) errx(EXIT_FAILURE, "malformed file %s", svn_version_path);
-				*p = 0;
-				p = buf + 5;
-				if(*p)
-					connection.commit_date = strdup(p);
-			} else if(!strncmp(buf, "author=", 7)) {
-				char *p = strchr(buf+7, '\n');
-				if(!p) errx(EXIT_FAILURE, "malformed file %s", svn_version_path);
-				*p = 0;
-				p = buf+7;
-				if(*p)
-					connection.commit_author = strdup(p);
-			} else if(!strncmp(buf, "log=", 4)) {
-				/* log entry may span multiple lines, therefore is last in file */
-				char *p = strchr(buf+4, '\n');
-				if(p) *p = 0;
-				connection.commit_msg = malloc(strlen(buf+4)+1);
-				memcpy(connection.commit_msg, buf+4, strlen(buf+4)+1);
-				in_log = 1;
-			}
-		}
-		fclose(f);
+		read_revision_file(&connection, svn_version_path);
 		write_info_or_log(&connection);
 		return 0;
 	}
