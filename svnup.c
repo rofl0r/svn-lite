@@ -2131,6 +2131,21 @@ static void write_info_or_log(connector *connection) {
 	}
 }
 
+static void save_revision_file(connector *connection, char *svn_version_path) {
+	FILE *f;
+	if (!(f = fopen(svn_version_path, "w")))
+		err(EXIT_FAILURE, "write file failure %s", svn_version_path);
+	int pr = connection->protocol;
+	char *ps = pr == SVN ? "svn" : pr == HTTP ? "http" : "https";
+	fprintf(f, "rev=%u\n", connection->revision);
+	fprintf(f, "url=%s://%s/%s\n", ps, connection->address, connection->branch);
+	fprintf(f, "date=%s\n", connection->commit_date ? connection->commit_date : "");
+	fprintf(f, "author=%s\n", connection->commit_author ? connection->commit_author : "");
+	fprintf(f, "log=%s\n", connection->commit_msg ? connection->commit_msg : "");
+	fclose(f);
+	chmod(svn_version_path, 0644);
+}
+
 static void read_revision_file(connector *connection, char *svn_version_path) {
 	FILE *f = fopen(svn_version_path, "r");
 	char buf[1024];
@@ -2619,22 +2634,8 @@ main(int argc, char **argv)
 
 	save_known_file_list(&connection, file, file_count);
 
-	/* Save the current revision number for inclusion in newvers.sh */
-
-	{
-	FILE *f;
-	if (!(f = fopen(svn_version_path, "w")))
-		err(EXIT_FAILURE, "write file failure %s", svn_version_path);
-	int pr = connection.protocol;
-	char *ps = pr == SVN ? "svn" : pr == HTTP ? "http" : "https";
-	fprintf(f, "rev=%u\n", connection.revision);
-	fprintf(f, "url=%s://%s/%s\n", ps, connection.address, connection.branch);
-	fprintf(f, "date=%s\n", connection.commit_date ? connection.commit_date : "");
-	fprintf(f, "author=%s\n", connection.commit_author ? connection.commit_author : "");
-	fprintf(f, "log=%s\n", connection.commit_msg ? connection.commit_msg : "");
-	fclose(f);
-	}
-	chmod(svn_version_path, 0644);
+	/* Save details about the current revision */
+	save_revision_file(&connection, svn_version_path);
 
 	/* Any files left in the tree are safe to delete. */
 
