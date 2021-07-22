@@ -1330,9 +1330,11 @@ process_report_svn(connector *connection, char *command, file_node ***file, int 
 	int          count, path_exists, try, x;
 	size_t       d, length, name_length, path_length, path_source_length;
 	char        *command_start, *directory_end, *directory_start, *end;
-	char        *item_end, *item_start, *marker, *name, next_command[BUFFER_UNIT];
-	char         path_source[MAXNAMLEN + 1], *start, *temp, temp_path[BUFFER_UNIT];
+	char        *item_end, *item_start, *marker, *name;
+	char        *path_source, *start, *temp;
 	stringlist *buffered_commands = stringlist_new(16);
+
+	path_source = malloc(MAXNAMLEN + 1);
 
 	try = -1;
 
@@ -1427,6 +1429,8 @@ process_report_svn(connector *connection, char *command, file_node ***file, int 
 				name = strchr(item_start, ':') + 1;
 				name[length] = '\0';
 
+				char *temp_path = malloc(BUFFER_UNIT+1);
+
 				snprintf(temp_path,
 					BUFFER_UNIT,
 					"%s%s/%s",
@@ -1460,6 +1464,7 @@ process_report_svn(connector *connection, char *command, file_node ***file, int 
 
 				length += path_source_length + 1;
 
+				char* next_command = malloc(BUFFER_UNIT+1);
 				snprintf(next_command,
 					BUFFER_UNIT,
 					"( get-dir ( %zd:%s/%s ( %d ) false true ( kind size ) false ) )\n",
@@ -1469,6 +1474,8 @@ process_report_svn(connector *connection, char *command, file_node ***file, int 
 					connection->revision);
 
 				stringlist_add_dup(buffered_commands, next_command);
+				free(next_command);
+				free(temp_path);
 			}
 
 			item_start = item_end + 1;
@@ -1487,6 +1494,7 @@ process_report_svn(connector *connection, char *command, file_node ***file, int 
 		free(chain);
 	}
 	stringlist_free(buffered_commands);
+	free(path_source);
 }
 
 static char* craft_http_packet(const char *host, const char* url,
