@@ -906,6 +906,12 @@ process_command_http(connector *connection, char *command)
 			snprintf(hex_chunk, sizeof(hex_chunk), "\r\n%x\r\n", chunk);
 			gap = strlen(hex_chunk);
 
+			if (marker2 + chunk + gap > connection->response + connection->response_length) {
+				marker2 += 2;
+				read_more = 1;
+				break;
+			}
+
 			if (first_chunk) {
 				first_chunk = 0;
 				chunk += gap;
