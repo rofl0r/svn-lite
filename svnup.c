@@ -632,10 +632,16 @@ process_command_svn(connector *connection, const char *command, unsigned int exp
 
 		connection->response_length += bytes_read;
 
-		if (connection->response_length > connection->response_blocks * BUFFER_UNIT) {
-			while(connection->response_length > connection->response_blocks * BUFFER_UNIT)
-				connection->response_blocks += (connection->response_blocks/2);
-			connection->response = (char *)realloc(
+		/* always allocate at least 512 bytes more than we actually need
+		   because there's some wacky code in the svn parsing chain that writes
+		   a couple bytes outside the boundary (8 bytes according to valgrind) */
+		size_t max = connection->response_length + 512;
+		if(expected_bytes + 512 > max) max = expected_bytes + 512;
+		if (max >= connection->response_blocks * BUFFER_UNIT) {
+			do connection->response_blocks += (connection->response_blocks/2);
+			while(max >= connection->response_blocks * BUFFER_UNIT);
+
+			connection->response = realloc(
 				connection->response,
 				connection->response_blocks * BUFFER_UNIT + 1);
 
