@@ -2789,6 +2789,10 @@ main(int argc, char **argv)
 		SSL_free(connection.ssl);
 	}
 
+	free(connection.commit_author);
+	free(connection.commit_msg);
+	free(connection.commit_date);
+
 	free(connection.known_files_old);
 	free(connection.known_files_new);
 	free(connection.response);
