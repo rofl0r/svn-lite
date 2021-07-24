@@ -420,7 +420,7 @@ reset_connection(connector *connection)
 	struct addrinfo hints = {
 		.ai_family = connection->family,
 		.ai_socktype = SOCK_STREAM,
-	}, *start, *temp;
+	}, *start, *temp, *gai;
 	int             error, option;
 	char            type[10];
 
@@ -432,6 +432,8 @@ reset_connection(connector *connection)
 
 	if ((error = getaddrinfo(connection->address, type, &hints, &start)))
 		errx(EXIT_FAILURE, "%s", gai_strerror(error));
+
+	gai = start;
 
 	connection->socket_descriptor = -1;
 	while (start) {
@@ -446,8 +448,9 @@ reset_connection(connector *connection)
 		}
 
 		start = temp->ai_next;
-		freeaddrinfo(temp);
 	}
+
+	if(gai) freeaddrinfo(gai);
 
 	if (connection->protocol == HTTPS) {
 		if (SSL_library_init() == 0)
