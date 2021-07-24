@@ -632,11 +632,11 @@ process_command_svn(connector *connection, const char *command, unsigned int exp
 
 		connection->response_length += bytes_read;
 
-		/* always allocate at least 512 bytes more than we actually need
-		   because there's some wacky code in the svn parsing chain that writes
-		   a couple bytes outside the boundary (8 bytes according to valgrind) */
-		size_t max = connection->response_length + 512;
-		if(expected_bytes + 512 > max) max = expected_bytes + 512;
+		/* always allocate at least BUFFER_UNIT bytes more than we actually need
+		   because there's some wacky code in get_files() - see FIXME comment
+		   before the memmove() there */
+		size_t max = connection->response_length + BUFFER_UNIT;
+		if(expected_bytes + BUFFER_UNIT > max) max = expected_bytes + BUFFER_UNIT;
 		if (max >= connection->response_blocks * BUFFER_UNIT) {
 			do connection->response_blocks += (connection->response_blocks/2);
 			while(max >= connection->response_blocks * BUFFER_UNIT);
@@ -1931,6 +1931,11 @@ get_files(connector *connection, char *command, char *path_target, file_node **f
 				gap = start;
 				start = strchr(gap, ':') + 1;
 				block_size = strtol(gap, (char **)NULL, 10);
+		/* FIXME this memmove here was identified as writing memory
+		   outside the allocated area (if the aread allocated was very close to
+		   the actually transfered content size); probably by as many
+		   bytes as it tries to move the block around, which is identical to the SVN
+		   header for that block. */
 				memmove(gap, start, file[x]->raw_size - (start - begin) + 1);
 				offset = gap - start;
 			}
