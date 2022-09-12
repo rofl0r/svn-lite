@@ -1188,12 +1188,11 @@ save_file(char *filename, char *start, char *end, int executable, int special)
 			}
 		}
 	} else {
-		if ((fd = open(filename, O_WRONLY | O_CREAT | O_TRUNC)) == -1)
+		if ((fd = open(filename, O_WRONLY | O_CREAT | O_TRUNC, executable ? 0755 : 0644)) == -1)
 			err(EXIT_FAILURE, "write file failure %s", filename);
 
 		write(fd, start, end - start);
 		close(fd);
-		chmod(filename, executable ? 0755 : 0644);
 
 		saved = 1;
 	}
@@ -1214,7 +1213,7 @@ save_known_file_list(connector *connection, file_node **file, int file_count)
 	struct tree_node  find, *found;
 	int               fd, x;
 
-	if ((fd = open(connection->known_files_new, O_WRONLY | O_CREAT | O_TRUNC)) == -1)
+	if ((fd = open(connection->known_files_new, O_WRONLY | O_CREAT | O_TRUNC, 0644)) == -1)
 		err(EXIT_FAILURE, "write file failure %s", connection->known_files_new);
 
 	for (x = 0; x < file_count; x++) {
@@ -1243,7 +1242,6 @@ save_known_file_list(connector *connection, file_node **file, int file_count)
 	}
 
 	close(fd);
-	chmod(connection->known_files_new, 0644);
 }
 
 
