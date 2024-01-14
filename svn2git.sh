@@ -90,8 +90,13 @@ git add --all .  # . adds *all* files, even dotfiles and dirs not listed with *,
 
 # unstage our own files from repo
 # we can't check in .gitignore, since that might at some point be added in a commit
-for x in $(git status --porcelain | grep ' \.svnup/' | cut -b 4-) ; do
+for x in $(git status --porcelain | awk '/ \.svn\// || / \.svnup\// {for(i=1;i<=NF;++i) if($i ~ /\.svn\// || $i ~/\.svnup\//) {print($i); break;}}') ; do
 git rm --cached "$x" >/dev/null
+ret=$?
+if test $ret != 0 ; then
+  echo "got error trying to git rm $x"
+  exit 1
+fi
 done
 
 $SVN log -r "$rev" . > "$tmp1"
