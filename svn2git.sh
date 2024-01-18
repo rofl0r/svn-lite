@@ -1,6 +1,16 @@
 #!/bin/sh
 
-test -z "$SVN" && SVN=svn
+if test -z "$SVN" ; then
+if type svn >/dev/null 2>&1 ; then
+SVN=svn
+else
+SVN="$(dirname $(readlink -f "$0"))"/svn
+fi
+else
+# in case SVN is set to a relative path, resolve it, for chdir reasons.
+rp="$(realpath "$SVN" 2>/dev/null)"
+test $? = 0 && SVN="$rp"
+fi
 
 usage() {
 	echo "$0 COMMAND [OPTIONS...]"
@@ -17,6 +27,8 @@ usage() {
 	echo
 	echo "example:"
 	echo "$0 convert svn://svn.code.sf.net/p/dosbox/code-0/dosbox/trunk dosbox"
+	echo
+	echo "if you want to use a specific SVN program, set SVN env var to it."
 	exit 1
 }
 
