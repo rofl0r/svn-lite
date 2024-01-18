@@ -31,6 +31,16 @@ usage() {
 	echo "if you want to use a specific SVN program, set SVN env var to it."
 	exit 1
 }
+get_ini() { printf "%s/.git/svn2git.ini\n" "$1" ; }
+set_ini_val() { sed -e 's@^'$2'=.*$@'$2'='"$3"'@' -i "$(get_ini "$1")" ; }
+set_rev() { set_ini_val "$1" rev $2 ; }
+set_url() { set_ini_val "$1" url "$2" ; }
+get_ini_val() {
+	test -e "$(get_ini "$1")" || { printf "-1\n" ; return 1 ; }
+	grep '^'$2'=' < "$(get_ini "$1")" | cut -d = -f 2
+}
+get_rev() { get_ini_val "$1" rev ; }
+get_url() { get_ini_val "$1" url ; }
 
 if test "$1" = convert ; then
 test -z "$3" && usage
@@ -42,12 +52,11 @@ need_init=true
 
 elif test "$1" = update ; then
 test -z "$2" && usage
-outdir=$2
-rev_file="$outdir"/.svnup/revision
-test -e "$rev_file" || { echo "can't find $rev_file">&2 ; exit 1; }
-rev=$(grep '^rev=' < "$rev_file" | cut -d = -f 2)
+outdir="$2"
+rev=$(get_rev "$outdir")
+test $rev = -1 && { echo "cant find $(get_ini "$outdir")">&2 ; exit 1; }
+repo=$(get_url "$outdir")
 rev=$((rev + 1))
-repo="$(grep '^url=' < "$rev_file" | cut -d = -f 2)"
 need_init=false
 else
 
@@ -67,13 +76,17 @@ test -z "$endrev" && {
 }
 
 if $need_init ; then
-	test -d "$outdir" && { "error: $outdir already existing! did you mean to use 'update'?" ; exit 1; }
+	test -d "$outdir" && { echo "error: $outdir already existing! did you mean to use 'update'?" ; exit 1 ; }
 	mkdir -p "$outdir"
 fi
 cd "$outdir"
 
 if $need_init ; then
 git init
+cat << EOF > $(get_ini .)
+rev=-1
+url=$repo
+EOF
 gbranch=master
 test "$(basename "$repo" | sed 's,/,,g')" = trunk && gbranch=trunk
 git branch -m $gbranch
@@ -127,6 +140,6 @@ printf "r%u|" $rev > $tmp2
 tail -n $((loglines - 4)) < $tmp1 >> $tmp2
 
 git commit --author="$author <$author_sane@localhost>" --date="$date" -F $tmp2 --allow-empty
-
+set_rev . $rev
 rev=$((rev + 1))
 done
