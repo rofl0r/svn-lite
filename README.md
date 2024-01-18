@@ -30,3 +30,13 @@ only to download a couple of files.
 
 run `make`.
 
+# issues / status
+
+svn-lite works fine with http and https protocols, but there's a bug
+that's hard to fix when using the svn protocol.
+svn protocol works in most cases, but its use isn't recommended until
+the bug is fixed. whenever possible, use http protocol instead.
+on the plus side, svn-lite is a *lot* faster than the official svn
+client, which is especially important when using the svn2git.sh utility
+to convert a repo to git.
+
