@@ -1104,13 +1104,31 @@ parse_response_item(connector *connection, char *end, int *count, char **item_st
 		(*item_end)++;
 
 		while ((c > 0) && (*item_end < end)) {
+			/* At a token start, jump over a string payload
+			 * so parentheses inside it are not counted. */
+			if (isdigit((unsigned char)**item_end) &&
+			    (*item_end == *item_start ||
+			     *(*item_end - 1) == ' ' || *(*item_end - 1) == '(')) {
+				char *q = *item_end;
+				while (q < end && isdigit((unsigned char)*q))
+					q++;
+				if (q < end && *q == ':') {
+					long n = strtol(*item_end, NULL, 10);
+					if (n >= 0 && q + 1 + n < end) {
+						has_entries++;
+						*item_end = q + n;
+						continue;
+					}
+				}
+			}
 			(*item_end)++;
 			c += (**item_end == '(' ? 1 : (**item_end == ')' ? -1 : 0));
 			if (**item_end == ':') has_entries++;
 		}
 
 		(*item_end)++;
-		**item_end = '\0';
+		if (*item_end < end)
+			**item_end = '\0';
 	}
 
 	if (connection->protocol >= HTTP) {
