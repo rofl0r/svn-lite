@@ -102,6 +102,7 @@ typedef struct {
 	int       verbosity;
 	char      inline_props;
 	int       stop_at_done;
+	int       stop_at_file_end;
 } connector;
 
 
@@ -727,6 +728,50 @@ retry:
 		connection->response_length = position;
 		connection->response[position] = '\0';
 
+		if (expected_bytes == (unsigned int)-1) {
+			/* Read until stop_at_file_end files are
+			 * complete. Each file response is auth list,
+			 * success list, one or more bare strings
+			 * terminated by an empty string, and a
+			 * final success list. A list after at
+			 * least one bare string is a final success. */
+			int files_done = 0;
+			int seen_string = 0;
+			int target = (int)connection->response_groups;
+			if (target <= 0)
+				target = 1;
+			/* response_groups is set by get_files callers
+			 * to 2 per file for group mode; for file
+			 * content the number of files in the batch
+			 * is encoded there by the caller. */
+			target = connection->stop_at_file_end;
+			char *scan = connection->response;
+			char *scan_end = connection->response + position;
+			while (scan < scan_end) {
+				while (scan < scan_end && *scan == ' ')
+					scan++;
+				if (scan >= scan_end)
+					break;
+				char *next = svn_item_end(scan, scan_end);
+				if (!next)
+					break;
+				if (*scan == '(') {
+					if (seen_string) {
+						files_done++;
+						seen_string = 0;
+						if (files_done >= target) {
+							scan = next;
+							break;
+						}
+					}
+				} else {
+					seen_string = 1;
+				}
+				scan = next;
+			}
+			if (files_done >= target)
+				ok = 1;
+		}
 		if (expected_bytes == 0) {
 			/* Count complete top-level items in the bytes
 			 * received so far. The scan resumes from the
@@ -786,6 +831,14 @@ retry:
 			ok = 1;
 	}
 	while (!ok);
+
+	if (expected_bytes == (unsigned int)-1) {
+		/* Do not mark separators: bare content strings use
+		 * the space after them as part of their framing and
+		 * get_files needs to see it. Slice parsing uses
+		 * svn_item_end and does not need NUL separators. */
+		(void)position;
+	}
 
 	if ((expected_bytes == 0) && (connection->verbosity > 2))
 		fprintf(stdout, "==========\n>> Response:\n%s", connection->response);
@@ -1964,34 +2017,65 @@ get_files(connector *connection, char *command, char *path_target, file_node **f
 	}
 
 	if (connection->protocol == SVN) {
-		last_response  = 20;
-		first_response = 84;
-
-		x = connection->revision;
-		while ((int)(x /= 10) > 0)
-			first_response++;
-
+		/* Do not pre-compute the wire size from an assumed
+		 * chunk size. Read until each file's final success
+		 * response has arrived, then split the response
+		 * into per-file slices and derive raw_size from
+		 * the slice actually received. */
+		int nfiles = 0;
 		for (x = file_start; x <= file_end; x++) {
 			if ((file[x] == NULL) || (file[x]->download == 0))
 				continue;
-
-			block_size_markers = 6 * (int)(file[x]->size / BUFFER_UNIT);
-			if (file[x]->size % BUFFER_UNIT)
-				block_size_markers += 3;
-
-			file_block_remainder = file[x]->size % BUFFER_UNIT;
-			while ((int)(file_block_remainder /= 10) > 0)
-				block_size_markers++;
-
-			file[x]->raw_size = file[x]->size +
-				first_response +
-				last_response +
-				block_size_markers;
-
-			raw_size += file[x]->raw_size;
+			file[x]->raw_size = 0;
+			nfiles++;
 		}
-
-		process_command_svn(connection, command, raw_size);
+		connection->stop_at_file_end = nfiles;
+		connection->response_groups = nfiles;
+		process_command_svn(connection, command, (unsigned int)-1);
+		connection->stop_at_file_end = 0;
+		/* Split into per-file slices in order. */
+		{
+			char *scan = connection->response;
+			char *scan_end = scan + connection->response_length;
+			int idx = file_start;
+			while (scan < scan_end) {
+				char *slice_start = scan;
+				int seen_string = 0;
+				int slice_done = 0;
+				while (scan < scan_end && !slice_done) {
+					while (scan < scan_end && *scan == ' ')
+						scan++;
+					if (scan >= scan_end)
+						break;
+					char *next = svn_item_end(scan, scan_end);
+					if (!next)
+						break;
+					if (*scan == '(' && seen_string)
+						slice_done = 1;
+					else if (*scan != '(')
+						seen_string = 1;
+					scan = next;
+					if (slice_done)
+						break;
+				}
+				while (idx <= file_end &&
+				    (file[idx] == NULL || file[idx]->download == 0))
+					idx++;
+				if (idx > file_end)
+					break;
+				file[idx]->raw_size = (int)(scan - slice_start);
+				if (scan < scan_end && *scan == '\0')
+					file[idx]->raw_size++;
+				else if (scan < scan_end && *scan == ' ')
+					file[idx]->raw_size++;
+				raw_size += file[idx]->raw_size;
+				idx++;
+				if (scan < scan_end && (*scan == ' ' || *scan == '\0'))
+					scan++;
+			}
+			if (raw_size == 0)
+				errx(EXIT_FAILURE, "Error in get_files.  Quitting.");
+		}
 	}
 
 	/* Process the response stream and extract each file. */

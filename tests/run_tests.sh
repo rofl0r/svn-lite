@@ -50,5 +50,10 @@ URL="svn://127.0.0.1:$PORT/mock"
 timeout 15 ./svn info "$URL" >"$TMP/date" 2>&1; rc=$?
 if test $rc = 0 && grep -q "2020-11-10 09:23:51" "$TMP/date"; then ok "date without fraction"; else bad "date without fraction"; cat "$TMP/date"; fi
 stop_mock
+start_mock env MOCK_CHUNK=100
+URL="svn://127.0.0.1:$PORT/mock"
+timeout 20 ./svn checkout "$URL" "$TMP/co100" >"$TMP/co100.log" 2>&1; rc=$?
+if test $rc = 0 && test "$(wc -c < "$TMP/co100/big.bin")" = 100000; then ok "100 byte chunk checkout"; else bad "100 byte chunk checkout"; cat "$TMP/co100.log"; fi
+stop_mock
 echo "pass: $PASS fail: $FAIL"
 test "$FAIL" = 0
