@@ -101,6 +101,7 @@ typedef struct {
 	int       extra_files;
 	int       verbosity;
 	char      inline_props;
+	int       stop_at_done;
 } connector;
 
 
@@ -722,6 +723,7 @@ retry:
 			 * start, so a string or a list split across
 			 * two reads is handled correctly. */
 			unsigned int groups = 0;
+			int seen_done = 0;
 			char *scan = connection->response;
 			char *scan_end = connection->response + position;
 			while (scan < scan_end) {
@@ -732,6 +734,17 @@ retry:
 				char *next = svn_item_end(scan, scan_end);
 				if (!next)
 					break;
+				if (connection->stop_at_done) {
+					if ((next - scan == 4 && memcmp(scan, "done", 4) == 0))
+						seen_done = 1;
+					else if (seen_done && *scan == '(') {
+						groups++;
+						scan = next;
+						if (groups >= connection->response_groups)
+							break;
+						continue;
+					}
+				}
 				groups++;
 				scan = next;
 				/* Mark the separator after a complete
@@ -742,7 +755,8 @@ retry:
 				if (groups >= connection->response_groups)
 					break;
 			}
-			if (groups >= connection->response_groups && connection->response_groups > 0) {
+			if ((groups >= connection->response_groups && connection->response_groups > 0) ||
+			    (connection->stop_at_done && seen_done && groups >= 3)) {
 				/* Drop any bytes of a following item that
 				 * arrived in the same read: they belong to
 				 * a later response and would otherwise be
@@ -1597,20 +1611,26 @@ static char* craft_http_packet(const char *host, const char* url,
    returns pointer to after ')' */
 static char* extract_svn_string_from_group(char* data, char** saveloc) {
 	char *p = data;
-	assert(*p == '(');
+	*saveloc = NULL;
+	if (!p || *p != '(')
+		return NULL;
 	++p;
-	assert(*p == ' ');
+	if (*p != ' ')
+		return NULL;
 	++p;
-	assert(isdigit(*p));
+	if (!isdigit((unsigned char)*p))
+		return NULL;
 	int n = atoi(p);
-	while(isdigit(*p))++p;
-	assert(*p == ':');
+	while(isdigit((unsigned char)*p))++p;
+	if (*p != ':')
+		return NULL;
 	++p;
 	*saveloc = malloc(n+1);
 	memcpy(*saveloc, p, n);
 	(*saveloc)[n] = 0;
 	p += n + 1;
-	assert(*p == ')');
+	if (*p != ')')
+		return NULL;
 	return ++p;
 }
 
@@ -1623,14 +1643,18 @@ static void process_log_svn(connector *connection) {
 		 " ( 10:svn:author 8:svn:date 7:svn:log ) ) ) ",
 		 connection->revision, connection->revision);
 
-	connection->response_groups = 2; /* 3 on success, 2 on error */
+	connection->response_groups = 4;
+	connection->stop_at_done = 1;
 	process_command_svn(connection, command, 0);
+	connection->stop_at_done = 0;
 	start = connection->response;
 	end = connection->response + connection->response_length;
 
 	char* group2 = connection->response + strlen(connection->response) +1;
-	if(group2 < end && starts_with_lit(group2, "done ( failure ( ( "))
-		errx(EXIT_FAILURE, "%s", group2 + LIT_LEN("done ( failure ( ( "));
+	if(group2 < end && starts_with_lit(group2, "( failure"))
+		errx(EXIT_FAILURE, "%s", group2);
+	if(group2 < end && starts_with_lit(group2, "done ( failure"))
+		errx(EXIT_FAILURE, "%s", group2);
 
 	if (check_command_success(connection->protocol, &start, &end))
 		errx(EXIT_FAILURE, "couldn't get log");
@@ -1643,15 +1667,22 @@ static void process_log_svn(connector *connection) {
 	p += strlen(buf)-2;
 
 	p = extract_svn_string_from_group(p, &connection->commit_author);
-	assert(*p == ' ');
+	if (!p || !connection->commit_author)
+		return;
+	if (*p != ' ')
+		return;
 	++p;
 
 	p = extract_svn_string_from_group(p, &connection->commit_date);
-	assert(*p == ' ');
+	if (!p || !connection->commit_date)
+		return;
+	if (*p != ' ')
+		return;
 	++p;
 
 	p = extract_svn_string_from_group(p, &connection->commit_msg);
-	assert(*p == ' ');
+	if (!p)
+		return;
 
 	sanitize_svn_date(connection->commit_date);
 }
