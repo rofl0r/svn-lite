@@ -151,13 +151,16 @@ static void		 progress_indicator(connector *connection, char *, int, int);
 
 /* turn svn date string like "2020-11-10T09:23:51.711212Z" into "2020-11-10 09:23:51" */
 static char* sanitize_svn_date(char *date) {
-	char *temp = temp;
+	char *temp;
+	if (!date)
+		return NULL;
 	temp = strchr(date, 'T');
-	*temp++ = ' ';
-	temp = strchr(temp, '.');
-	*temp = 'Z';
-	*temp = 0;
-	return temp;
+	if (temp)
+		*temp = ' ';
+	temp = temp ? strchr(temp, '.') : NULL;
+	if (temp)
+		*temp = 0;
+	return date;
 }
 
 static char*
