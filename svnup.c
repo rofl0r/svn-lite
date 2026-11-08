@@ -1418,10 +1418,18 @@ process_report_svn(connector *connection, char *command, file_node ***file, int 
 
 		directory_end = strchr(directory_start, '\n');
 
-		temp = strchr(directory_start, ':') + 1;
-		directory_start = strchr(temp, ' ');
-
-		length = directory_start - temp;
+		/* Parse the length-prefixed path. A path may contain
+		 * spaces, so looking for a space would truncate it.
+		 * The digits are just before the first colon. */
+		{
+			char *colon = strchr(directory_start, ':');
+			char *d = colon;
+			while (d > directory_start && isdigit((unsigned char)d[-1]))
+				d--;
+			length = strtol(d, NULL, 10);
+			temp = colon + 1;
+			directory_start = temp + length;
+		}
 		if (length > 0)
 			memcpy(path_source, temp, length);
 
