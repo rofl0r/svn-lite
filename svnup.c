@@ -2547,12 +2547,28 @@ main(int argc, char **argv)
 			connection.revision);
 		process_command_svn(&connection, command, 0);
 
-		if ((strcmp(connection.response, "( success ( ( ) 0: ) )") != 0) &&
-		    (strcmp(connection.response + 23, "( success ( dir ) ) ") != 0))
-			errx(EXIT_FAILURE,
-				"Remote path %s is not a repository directory.\n%s",
-				connection.branch,
-				connection.response);
+		/* The reply is auth plus "( success ( kind ) )".
+		 * Check the kind in the second response instead of
+		 * comparing fixed offsets, which assumed the exact
+		 * bytes of the auth reply, including its realm. */
+		{
+			char *kind_start = connection.response;
+			char *kind_end;
+			int kind_ok = 0;
+			/* skip the auth response */
+			if (check_command_success(connection.protocol, &kind_start, &kind_end) == 0) {
+				if (starts_with_lit(kind_start, "( success ( dir )"))
+					kind_ok = 1;
+				else if (starts_with_lit(kind_start, "( success ( ( ) 0: ) )") &&
+				    strcmp(connection.response, "( success ( ( ) 0: ) )") == 0)
+					kind_ok = 1;
+			}
+			if (!kind_ok)
+				errx(EXIT_FAILURE,
+					"Remote path %s is not a repository directory.\n%s",
+					connection.branch,
+					connection.response);
+		}
 
 		process_log_svn(&connection);
 	}
