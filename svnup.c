@@ -1979,24 +1979,39 @@ get_files(connector *connection, char *command, char *path_target, file_node **f
 
 		if (connection->protocol == SVN) {
 			start = find_response_end(connection->protocol, start, temp_end) + 1;
-			begin = strchr(start, ':') + 1;
-			block_size = strtol(start, (char **)NULL, 10);
-			offset = 0;
-			start = begin;
-
-			while (block_size == BUFFER_UNIT) {
-				start += block_size + offset;
-				gap = start;
-				start = strchr(gap, ':') + 1;
-				block_size = strtol(gap, (char **)NULL, 10);
-		/* FIXME this memmove here was identified as writing memory
-		   outside the allocated area (if the aread allocated was very close to
-		   the actually transfered content size); probably by as many
-		   bytes as it tries to move the block around, which is identical to the SVN
-		   header for that block. */
-				memmove(gap, start, file[x]->raw_size - (start - begin) + 1);
-				offset = gap - start;
+			/* Content is a sequence of length-prefixed
+			 * strings, terminated by an empty string.
+			 * Compact them in place to the start of the
+			 * first chunk, whatever chunk sizes the
+			 * server used. The old code assumed exactly
+			 * 4096 byte chunks, and its memmove used a
+			 * length measured from the first chunk, so it
+			 * copied past the end of this file in the
+			 * response buffer. Bound every chunk by the
+			 * end of the response, not by temp_end: the
+			 * success check set temp_end to the end of
+			 * the success response. */
+			char *first = strchr(start, ':') + 1;
+			char *dst = first;
+			char *src = start;
+			while (src < end) {
+				block_size = strtol(src, NULL, 10);
+				if (block_size == 0)
+					break;
+				src = strchr(src, ':') + 1;
+				if (src + block_size > end)
+					errx(EXIT_FAILURE, "Error in get_files.  Quitting.");
+				if (dst != src)
+					memmove(dst, src, block_size);
+				dst += block_size;
+				src += block_size;
+				if (src < end && *src == ' ')
+					src++;
 			}
+			begin = first;
+			offset = (int)(dst - first);
+			if (offset != file[x]->size)
+				errx(EXIT_FAILURE, "Error in get_files.  Quitting.");
 		}
 
 		/*
