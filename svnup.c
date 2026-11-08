@@ -665,16 +665,17 @@ static char *
 process_command_svn(connector *connection, const char *command, unsigned int expected_bytes)
 {
 	ssize_t       bytes_read;
-	int           count, ok;
-	unsigned int  group, position, try;
+	int           ok;
+	unsigned int  position, try;
 	char         *check, input[BUFFER_UNIT + 1];
 
 	try = 0;
-	retry:
+retry:
 
 	send_command(connection, command);
 
-	count = position = ok = group = connection->response_length = 0;
+	position = ok = 0;
+	connection->response_length = 0;
 
 	do {
 		bzero(input, BUFFER_UNIT + 1);
@@ -682,110 +683,77 @@ process_command_svn(connector *connection, const char *command, unsigned int exp
 		bytes_read = read(connection->socket_descriptor, input, BUFFER_UNIT);
 
 		if (bytes_read <= 0) {
-			if ((errno == EINTR) || (errno == 0)) continue;
-
+			if (bytes_read < 0 && (errno == EINTR || errno == 0))
+				continue;
 			if (++try > 5)
 				errx(EXIT_FAILURE, "Error in svn stream.  Quitting.");
-
 			if (try > 1)
 				fprintf(stderr, "Error in svn stream, retry #%d\n", try);
-
-			goto retry;
+			/* Re-sending a command after a partial read would
+			 * append a second response to the first one. */
+			errx(EXIT_FAILURE, "Error in svn stream.  Quitting.");
 		}
 
 		input[bytes_read] = 0;
 		if (connection->verbosity > 3)
 			fprintf(stdout, "<< %s\n", input);
 
-		connection->response_length += bytes_read;
-
-		/* always allocate at least BUFFER_UNIT bytes more than we actually need
-		   because there's some wacky code in get_files() - see FIXME comment
-		   before the memmove() there */
-		size_t max = connection->response_length + BUFFER_UNIT;
-		if(expected_bytes + BUFFER_UNIT > max) max = expected_bytes + BUFFER_UNIT;
-		if (max >= connection->response_blocks * BUFFER_UNIT) {
-			do connection->response_blocks += (connection->response_blocks/2);
-			while(max >= connection->response_blocks * BUFFER_UNIT);
-
+		size_t needed = position + (size_t)bytes_read + BUFFER_UNIT;
+		if (expected_bytes + BUFFER_UNIT > needed)
+			needed = expected_bytes + BUFFER_UNIT;
+		if (needed >= connection->response_blocks * BUFFER_UNIT) {
+			while (needed >= connection->response_blocks * BUFFER_UNIT)
+				connection->response_blocks += connection->response_blocks / 2 + 1;
 			connection->response = realloc(
 				connection->response,
 				connection->response_blocks * BUFFER_UNIT + 1);
-
 			if (connection->response == NULL)
 				err(EXIT_FAILURE, "process_command_svn realloc");
 		}
 
-		if (expected_bytes == 0) {
-			if (input[1] == '\0') {
-				connection->response[position++] = input[0];
-				continue;
-			}
-
-			if (connection->verbosity > 3)
-				fprintf(stdout, "==========\n>> Response Parse:\n");
-
-			check = input;
-			if ((count == 0) && (input[0] == ' '))
-				*check++ = '\0';
-
-			do {
-
-				if (*check == ')')
-					--count;
-				else if(*check == '(') {
-					/* trying to skip size-annotated block, which in case of
-					   a commit message may contain unbalanced parens */
-					int skip = 0;
-					char *q, *p = check+1, *e = input + bytes_read;
-					if(p+2 < e && p[0] == ' ' && isdigit(p[1])) {
-						q = p+1;
-						while(q < e && isdigit(*q)) ++q;
-						if(q < e && *q == ':') {
-							skip = atoi(p)+1;
-							check = q;
-						}
-					}
-					if(skip) {
-						if(check+skip < input + bytes_read) {
-							check += skip;
-						} else if (connection->verbosity > 3) {
-							fprintf(stderr, "couldn't skip %d bytes", skip);
-						}
-					}
-					++count;
-				}
-
-				if (connection->verbosity > 3)
-					fprintf(stderr, "%d", count);
-
-				if (count == 0) {
-					group++;
-					check++;
-					if (check < input + bytes_read) {
-						if (*check == ' ')
-							*check = '\0';
-
-						if (*check != '\0')
-							fprintf(stderr, "oops: %d %c\n", *check, *check);
-
-						char *q = check + 1;
-						while(q < input + bytes_read && *q != '(') ++q;
-						check = q-1;
-					}
-				}
-			}
-			while (++check < input + bytes_read);
-		}
-
-		memcpy(connection->response + position, input, bytes_read + 1);
+		memcpy(connection->response + position, input, bytes_read);
 		position += bytes_read;
+		connection->response_length = position;
+		connection->response[position] = '\0';
 
-		if ((expected_bytes == 0) && (connection->verbosity > 3))
-			fprintf(stderr, ". = %d %d\n", group, connection->response_groups);
-
-		if (group >= connection->response_groups)
-			ok = 1;
+		if (expected_bytes == 0) {
+			/* Count complete top-level items in the bytes
+			 * received so far. The scan resumes from the
+			 * start, so a string or a list split across
+			 * two reads is handled correctly. */
+			unsigned int groups = 0;
+			char *scan = connection->response;
+			char *scan_end = connection->response + position;
+			while (scan < scan_end) {
+				while (scan < scan_end && *scan == ' ')
+					scan++;
+				if (scan >= scan_end)
+					break;
+				char *next = svn_item_end(scan, scan_end);
+				if (!next)
+					break;
+				groups++;
+				scan = next;
+				/* Mark the separator after a complete
+				 * group as a NUL for the callers. */
+				if (scan < scan_end && *scan == ' ')
+					*scan = '\0';
+				scan++;
+				if (groups >= connection->response_groups)
+					break;
+			}
+			if (groups >= connection->response_groups && connection->response_groups > 0) {
+				/* Drop any bytes of a following item that
+				 * arrived in the same read: they belong to
+				 * a later response and would otherwise be
+				 * lost when the next call overwrites the
+				 * buffer from the start. The server sends
+				 * one response per command, so this only
+				 * happens on a protocol error. */
+				ok = 1;
+			}
+			(void)check;
+		}
 
 		if (position == expected_bytes)
 			ok = 1;
@@ -802,7 +770,6 @@ process_command_svn(connector *connection, const char *command, unsigned int exp
 
 	return (connection->response);
 }
-
 
 /*
  * process_command_http
