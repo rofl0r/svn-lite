@@ -158,9 +158,19 @@ static char* sanitize_svn_date(char *date) {
 	temp = strchr(date, 'T');
 	if (temp)
 		*temp = ' ';
-	temp = temp ? strchr(temp, '.') : NULL;
-	if (temp)
-		*temp = 0;
+	if (temp) {
+		char *dot = strchr(temp, '.');
+		if (dot)
+			*dot = 0;
+	}
+	/* A server may omit fractional seconds but still end
+	 * the date with Z. Drop the trailing Z so all dates
+	 * print the same way. */
+	{
+		size_t n = strlen(date);
+		if (n && date[n - 1] == 'Z')
+			date[n - 1] = 0;
+	}
 	return date;
 }
 

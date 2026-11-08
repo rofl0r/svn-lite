@@ -30,12 +30,20 @@ only to download a couple of files.
 
 run `make`.
 
+# test
+
+run `make test`.
+
+This starts a local mock svn server (tests/mock_svn.py,
+python3 only) and runs the client against it. No network
+and no svn server are needed.
+
 # issues / status
 
-svn-lite works fine with http and https protocols, but there's a bug
-that's hard to fix when using the svn protocol.
-svn protocol works in most cases, but its use isn't recommended until
-the bug is fixed. whenever possible, use http protocol instead.
+The svn protocol parser was rewritten to handle strings split
+across reads and parentheses inside strings. The mock tests in
+tests/ exercise those paths. Live servers should now work, but
+http remains a good fallback.
 on the plus side, svn-lite is a *lot* faster than the official svn
 client, which is especially important when using the svn2git.sh utility
 to convert a repo to git.

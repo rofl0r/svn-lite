@@ -17,8 +17,11 @@ $(PROG): $(OBJS)
 clean:
 	rm -f $(PROG) $(OBJS)
 
+test: $(PROG)
+	sh tests/run_tests.sh
+
 install: $(PROG) svn2git.sh
 	install -Dm 755 $(PROG) $(DESTDIR)$(PREFIX)/bin/$(PROG)
 	install -Dm 755 svn2git.sh $(DESTDIR)$(PREFIX)/bin/svn2git
 
-.PHONY: all clean install
+.PHONY: all clean install test
