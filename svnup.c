@@ -393,23 +393,87 @@ find_local_files_and_directories(char *path_base, const char *path_target, int i
  * of CRLFs.
  */
 
+/* Return a pointer just past one complete SVN item starting at p.
+ * An item is a list, a length-prefixed string, a word, or a number.
+ * Parentheses and colons inside a string payload do not count.
+ * Return NULL when the item is incomplete or malformed. */
+static char *
+svn_item_end(char *p, char *end)
+{
+	if (p >= end || !*p)
+		return NULL;
+	if (*p == '(') {
+		int depth = 0;
+		while (p < end && *p) {
+			if (*p == '(') {
+				depth++;
+				p++;
+			} else if (*p == ')') {
+				depth--;
+				p++;
+				if (depth == 0)
+					return p;
+			} else if (isdigit((unsigned char)*p)) {
+				/* A string starts only at a token boundary, but
+				 * checking digits here is safe because numbers
+				 * have no colon and payloads are jumped over. */
+				char *q = p;
+				while (q < end && isdigit((unsigned char)*q))
+					q++;
+				if (q < end && *q == ':') {
+					long n = strtol(p, NULL, 10);
+					q++;
+					if (n < 0 || q + n > end)
+						return NULL;
+					p = q + n;
+				} else {
+					p = q;
+				}
+			} else {
+				p++;
+			}
+		}
+		return NULL;
+	}
+	if (isdigit((unsigned char)*p)) {
+		char *q = p;
+		while (q < end && isdigit((unsigned char)*q))
+			q++;
+		if (q < end && *q == ':') {
+			long n = strtol(p, NULL, 10);
+			q++;
+			if (n < 0 || q + n > end)
+				return NULL;
+			return q + n;
+		}
+		if (q == p)
+			return NULL;
+		return q;
+	}
+	/* word */
+	{
+		char *q = p;
+		while (q < end && *q && *q != ' ' && *q != '\n' && *q != '(' && *q != ')')
+			q++;
+		return q == p ? NULL : q;
+	}
+}
+
 static char *
 find_response_end(int protocol, char *start, char *end)
 {
-	int count = 0;
+	if (protocol == SVN) {
+		char *e = svn_item_end(start, end);
+		return e ? e : end;
+	}
 
-	if (protocol == SVN)
-		do {
-			count += (*start == '(' ? 1 : (*start == ')' ? -1 : 0));
-		}
-		while ((*start != '\0') && (start++ < end) && (count > 0));
+	if (protocol >= HTTP) {
+		char *s = strstr(start, "\r\n\r\n");
+		return s ? s + 4 : start;
+	}
 
-	if (protocol >= HTTP)
-		start = strstr(start, "\r\n\r\n") + 4;
-
-	return (start);
+	return start;
 }
-
 
 /*
  * reset_connection
