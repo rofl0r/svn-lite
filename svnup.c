@@ -1838,13 +1838,23 @@ parse_additional_attributes(connector *connection, char *start, char *end, file_
 	if (file == NULL) return;
 
 	if (connection->protocol == SVN) {
-		if ((temp = strchr(start, ':')) != NULL) {
-			md5 = ++temp;
-			memcpy(file->md5, md5, 32);
-
-			file->executable = (strstr(start, "14:svn:executable") ? 1 : 0);
-			file->special    = (strstr(start, "11:svn:special") ? 1 : 0);
+		/* The response is "( success ( ( md5 ) rev props ) )".
+		 * Parse the md5 string instead of taking the first
+		 * colon in the response: that only works when the
+		 * first string sent is the checksum. */
+		temp = strstr(start, "( ( ");
+		if (temp) {
+			temp += 4;
+			if (isdigit((unsigned char)*temp)) {
+				long n = strtol(temp, NULL, 10);
+				char *colon = strchr(temp, ':');
+				if (n == 32 && colon)
+					memcpy(file->md5, colon + 1, 32);
+			}
 		}
+		file->executable = (strstr(start, "14:svn:executable") ? 1 : 0);
+		file->special    = (strstr(start, "11:svn:special") ? 1 : 0);
+		(void)md5;
 	} else if (connection->protocol >= HTTP) {
 		value = parse_xml_value(start, end, "lp1:getcontentlength");
 		file->size = strtol(value, (char **)NULL, 10);
