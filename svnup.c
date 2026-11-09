@@ -1936,22 +1936,120 @@ parse_additional_attributes(connector *connection, char *start, char *end, file_
 	if (file == NULL) return;
 
 	if (connection->protocol == SVN) {
-		/* The response is "( success ( ( md5 ) rev props ) )".
-		 * Parse the md5 string instead of taking the first
-		 * colon in the response: that only works when the
-		 * first string sent is the checksum. */
-		temp = strstr(start, "( ( ");
-		if (temp) {
-			temp += 4;
-			if (isdigit((unsigned char)*temp)) {
-				long n = strtol(temp, NULL, 10);
-				char *colon = strchr(temp, ':');
-				if (n == 32 && colon)
-					memcpy(file->md5, colon + 1, 32);
+		/* The response is "( success ( ( md5 ) rev props ) )"
+		 * and the props list is "( ( name value ) ... )".
+		 * Walk the items in order with the string aware
+		 * parser, so a name or a value that contains the
+		 * bytes "svn:executable" or "svn:special" cannot
+		 * set a flag by itself. */
+		char *scan = start;
+		char *items_end = end;
+		/* The outer list and the result list. */
+		if (scan < items_end && *scan == '(') {
+			scan++;
+			while (scan < items_end && *scan == ' ')
+				scan++;
+			if (scan + 6 <= items_end && !strncmp(scan, "success", 7))
+				scan += 7;
+		}
+		while (scan < items_end && *scan == ' ')
+			scan++;
+		/* The result is a list of ( checksum-list rev props ). */
+		if (scan < items_end && *scan == '(') {
+			char *result_end = svn_item_end(scan, items_end);
+			if (!result_end)
+				return;
+			items_end = result_end;
+			scan++;
+			while (scan < items_end && *scan == ' ')
+				scan++;
+			/* Checksum list: "( md5 )" or an empty list when
+			 * the server sent no checksum. */
+			if (scan < items_end && *scan == '(') {
+				char *list_end = svn_item_end(scan, items_end);
+				if (!list_end)
+					return;
+				scan++;
+				while (scan < items_end && *scan == ' ')
+					scan++;
+				if (scan < items_end && isdigit((unsigned char)*scan)) {
+					char *q = scan;
+					while (q < items_end && isdigit((unsigned char)*q))
+						q++;
+					if (q < items_end && *q == ':') {
+						long n = strtol(scan, NULL, 10);
+						if (n == 32 && q + 1 + n <= list_end)
+							memcpy(file->md5, q + 1, 32);
+					}
+				}
+				scan = list_end;
+			}
+			while (scan < items_end && *scan == ' ')
+				scan++;
+			/* Revision number, if present. */
+			if (scan < items_end && isdigit((unsigned char)*scan)) {
+				while (scan < items_end && isdigit((unsigned char)*scan))
+					scan++;
+				while (scan < items_end && *scan == ' ')
+					scan++;
+			}
+			/* Props list: "( ( name value ) ... )" */
+			if (scan < items_end && *scan == '(') {
+				char *props_end = svn_item_end(scan, items_end);
+				if (!props_end)
+					return;
+				char *entry = scan + 1;
+				while (entry < props_end) {
+					while (entry < props_end && (*entry == ' ' || *entry == '('))
+						entry++;
+					if (entry >= props_end || *entry == ')')
+						break;
+					char *entry_end = svn_item_end(entry, props_end);
+					if (!entry_end)
+						break;
+					/* entry is "( name value )". Compare the
+					 * full name and value strings, not a
+					 * substring of the whole response. */
+					char *value_start = entry + 1;
+					while (value_start < entry_end && *value_start == ' ')
+						value_start++;
+					if (value_start < entry_end && isdigit((unsigned char)*value_start)) {
+						char *q = value_start;
+						while (q < entry_end && isdigit((unsigned char)*q))
+							q++;
+						if (q < entry_end && *q == ':') {
+							long name_len = strtol(value_start, NULL, 10);
+							char *name_start = q + 1;
+							char *after_name = name_start + name_len;
+							/* Values that are exactly "*"
+							 * matter; check the token after
+							 * the name. */
+							char *v = after_name;
+							while (v < entry_end && *v == ' ')
+								v++;
+							int is_exec = (name_len == 14 && !strncmp(name_start, "svn:executable", 14));
+							int is_special = (name_len == 11 && !strncmp(name_start, "svn:special", 11));
+							if ((is_exec || is_special) && v < entry_end &&
+							    isdigit((unsigned char)*v)) {
+								char *vq = v;
+								while (vq < entry_end && isdigit((unsigned char)*vq))
+									vq++;
+								if (vq < entry_end && *vq == ':') {
+									long value_len = strtol(v, NULL, 10);
+									if (value_len == 1 && vq + 1 < entry_end && vq[1] == '*') {
+										if (is_exec)
+											file->executable = 1;
+										if (is_special)
+											file->special = 1;
+									}
+								}
+							}
+						}
+					}
+					entry = entry_end;
+				}
 			}
 		}
-		file->executable = (strstr(start, "14:svn:executable") ? 1 : 0);
-		file->special    = (strstr(start, "11:svn:special") ? 1 : 0);
 		(void)md5;
 	} else if (connection->protocol >= HTTP) {
 		value = parse_xml_value(start, end, "lp1:getcontentlength");
