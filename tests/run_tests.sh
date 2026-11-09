@@ -70,5 +70,11 @@ URL="svn://127.0.0.1:$PORT/mock"
 timeout 20 ./svn checkout "$URL" "$TMP/cofail2" >"$TMP/cofail2.log" 2>&1; rc=$?
 if test $rc = 0 && test -f "$TMP/cofail2/small.txt"; then ok "clean checkout after dropped connection"; else bad "clean checkout after dropped connection"; cat "$TMP/cofail2.log"; fi
 stop_mock
+start_mock env MOCK_SPLIT=1
+URL="svn://127.0.0.1:$PORT/mock"
+timeout 30 ./svn checkout "$URL" "$TMP/cosplit" >"$TMP/cosplit.log" 2>&1; rc=$?
+if test $rc = 0 && test "$(cat "$TMP/cosplit/small.txt")" = "hello (world) : keep"; then ok "1 byte split checkout"; else bad "1 byte split checkout"; cat "$TMP/cosplit.log"; fi
+timeout 15 ./svn log "$URL" >"$TMP/splitlog.log" 2>&1; if grep -q "log message with" "$TMP/splitlog.log"; then ok "1 byte split log"; else bad "1 byte split log"; cat "$TMP/splitlog.log"; fi
+stop_mock
 echo "pass: $PASS fail: $FAIL"
 test "$FAIL" = 0

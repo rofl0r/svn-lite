@@ -31,6 +31,7 @@ CHUNK = int(os.environ.get("MOCK_CHUNK", "4096"))
 DATE = os.environ.get("MOCK_DATE", "2020-11-10T09:23:51.711212Z").encode()
 REV = "42"
 FAIL_FIRST = os.environ.get("MOCK_FAIL_FIRST", "0") == "1"
+SPLIT = int(os.environ.get("MOCK_SPLIT", "0"))
 _seen_fail = False
 UUID = "00000000-0000-0000-0000-000000000000"
 LOG_MSG = (b"log message with ( unbalanced parens and "
@@ -158,18 +159,26 @@ def parse(buf, i=0):
 
 # ---- server -------------------------------------------------------------
 
+def sendall(conn, data):
+    if SPLIT:
+        data = bytes(data)
+        for i in range(0, len(data), SPLIT):
+            conn.sendall(data[i:i+SPLIT])
+    else:
+        conn.sendall(data)
+
 def handle(conn):
     r = Reader(conn)
-    conn.sendall(b"( success ( 2 2 ( ) ( edit-pipeline svndiff1 "
+    sendall(conn, b"( success ( 2 2 ( ) ( edit-pipeline svndiff1 "
                  b"absent-entries commit-revprops depth log-revprops "
                  b"atomic-revprops partial-replay ) ) ) ")
     try:
         resp = r.item()  # client response
         url = parse(resp)[0][1][2][1].decode() if len(parse(resp)[0][1]) > 2 else ''
-        conn.sendall(auth_ok())
+        sendall(conn, auth_ok())
         r.item()  # anonymous login
-        conn.sendall(auth_ok())
-        conn.sendall(b"( success ( " + S(UUID) + b" "
+        sendall(conn, auth_ok())
+        sendall(conn, b"( success ( " + S(UUID) + b" "
                      b"" + S("svn://127.0.0.1/mock") + b" ( ) ) ) ")
         while True:
             raw = r.item()
@@ -177,13 +186,13 @@ def handle(conn):
             # ( command-name params )
             cmd = it[1][0][1].decode()
             params = it[1][1][1] if len(it[1]) > 1 else []
-            conn.sendall(auth_ok())
+            sendall(conn, auth_ok())
             if cmd == "get-latest-rev":
-                conn.sendall(b"( success ( " + REV.encode() + b" ) ) ")
+                sendall(conn, b"( success ( " + REV.encode() + b" ) ) ")
             elif cmd == "check-path":
                 branch_path = url.rstrip("/").rsplit("/", 1)[-1]
                 kind = b"file" if branch_path in _all_files() else b"dir"
-                conn.sendall(b"( success ( " + kind + b" ) ) ")
+                sendall(conn, b"( success ( " + kind + b" ) ) ")
             elif cmd == "get-dir":
                 path = params[0][1].decode().lstrip("/")
                 entries = []
@@ -202,12 +211,12 @@ def handle(conn):
                                        + str(len(DIRS[path][name])).encode()
                                        + b" false 0 ( " + S("1970-01-01T00:00:00.000000Z")
                                        + b") ( ) )")
-                conn.sendall(b"( success ( " + REV.encode() + b" ( ) ( "
+                sendall(conn, b"( success ( " + REV.encode() + b" ( ) ( "
                              + b" ".join(entries) + b" ) ) ) ")
             elif cmd == "get-file":
                 if FAIL_FIRST and not globals().get('_seen_fail'):
                     globals()['_seen_fail'] = True
-                    conn.sendall(b'( success ( ( ) 0: ) ) partial')
+                    sendall(conn, b'( success ( ( ) 0: ) ) partial')
                     conn.close()
                     return
                 path = params[0][1].decode().lstrip("/")
@@ -222,7 +231,7 @@ def handle(conn):
                         props = b"( ( " + S("svn:special") + b" " + S("*") + b" ) )"
                     elif path == "small.txt":
                         props = b"( ( " + S("note") + b" " + S("14:svn:executable and 11:svn:special decoy") + b" ) )"
-                    conn.sendall(b"( success ( ( " + S(md5) + b") "
+                    sendall(conn, b"( success ( ( " + S(md5) + b") "
                                  + REV.encode() + b" " + props + b" ) ) ")
                 else:
                     step = CHUNK if CHUNK > 0 else 4096
@@ -231,15 +240,15 @@ def handle(conn):
                         body += S(data[off:off + step])
                     body += S(b"")
                     body += b"( success ( ) ) "
-                    conn.sendall(body)
+                    sendall(conn, body)
                     print("sentall", len(body), flush=True)
             elif cmd == "log":
-                conn.sendall(b"( ( ) " + REV.encode() + b" ( "
+                sendall(conn, b"( ( ) " + REV.encode() + b" ( "
                              + S("tester") + b") ( " + S(DATE) + b") ( "
                              + S(LOG_MSG) + b") false false 0 ( ) false ) done ")
-                conn.sendall(b"( success ( ) ) ")
+                sendall(conn, b"( success ( ) ) ")
             else:
-                conn.sendall(b"( success ( ) ) ")
+                sendall(conn, b"( success ( ) ) ")
     except Exception:
         pass
     finally:
