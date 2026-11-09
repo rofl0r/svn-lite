@@ -91,6 +91,9 @@ typedef struct {
 	char     *commit_author;
 	char     *commit_date;
 	char     *commit_msg;
+	size_t    commit_author_len;
+	size_t    commit_date_len;
+	size_t    commit_msg_len;
 	int       family;
 	char     *root;
 	char     *trunk;
@@ -1521,6 +1524,8 @@ process_report_svn(connector *connection, char *command, file_node ***file, int 
 		}
 		if (length > MAXNAMLEN)
 			errx(EXIT_FAILURE, "process_report_svn path is too long");
+		if (length > 0 && memchr(temp, '\0', length))
+			errx(EXIT_FAILURE, "process_report_svn path contains NUL");
 		if (length > 0)
 			memcpy(path_source, temp, length);
 
@@ -1568,6 +1573,8 @@ process_report_svn(connector *connection, char *command, file_node ***file, int 
 					errx(EXIT_FAILURE, "process_file_entry file name is too long");
 
 				name = item_start = strchr(item_start, ':') + 1;
+				if (memchr(name, '\0', name_length))
+					errx(EXIT_FAILURE, "process_report_svn name contains NUL");
 
 				item_start += name_length;
 				*item_start = '\0';
@@ -1591,6 +1598,8 @@ process_report_svn(connector *connection, char *command, file_node ***file, int 
 					errx(EXIT_FAILURE, "process_file file name is too long");
 
 				name = strchr(item_start, ':') + 1;
+				if (memchr(name, '\0', length))
+					errx(EXIT_FAILURE, "process_report_svn name contains NUL");
 				name[length] = '\0';
 
 				char *temp_path = malloc(BUFFER_UNIT+1);
@@ -1688,7 +1697,7 @@ static char* craft_http_packet(const char *host, const char* url,
 
 /* expects pointer to a string like "( 6: foobar )", puts "foobar" into saveloc (heap)
    returns pointer to after ')' */
-static char* extract_svn_string_from_group(char* data, char** saveloc) {
+static char* extract_svn_string_from_group(char* data, char** saveloc, size_t *saveloc_len) {
 	char *p = data;
 	*saveloc = NULL;
 	if (!p || *p != '(')
@@ -1707,6 +1716,8 @@ static char* extract_svn_string_from_group(char* data, char** saveloc) {
 	*saveloc = malloc(n+1);
 	memcpy(*saveloc, p, n);
 	(*saveloc)[n] = 0;
+	if (saveloc_len)
+		*saveloc_len = n;
 	p += n + 1;
 	if (*p != ')')
 		return NULL;
@@ -1745,25 +1756,26 @@ static void process_log_svn(connector *connection) {
 
 	p += strlen(buf)-2;
 
-	p = extract_svn_string_from_group(p, &connection->commit_author);
+	p = extract_svn_string_from_group(p, &connection->commit_author, &connection->commit_author_len);
 	if (!p || !connection->commit_author)
 		return;
 	if (*p != ' ')
 		return;
 	++p;
 
-	p = extract_svn_string_from_group(p, &connection->commit_date);
+	p = extract_svn_string_from_group(p, &connection->commit_date, &connection->commit_date_len);
 	if (!p || !connection->commit_date)
 		return;
 	if (*p != ' ')
 		return;
 	++p;
 
-	p = extract_svn_string_from_group(p, &connection->commit_msg);
+	p = extract_svn_string_from_group(p, &connection->commit_msg, &connection->commit_msg_len);
 	if (!p)
 		return;
 
 	sanitize_svn_date(connection->commit_date);
+	connection->commit_date_len = strlen(connection->commit_date);
 }
 
 static void process_log_http(connector *connection) {
@@ -2499,15 +2511,22 @@ static void write_info_or_log(connector *connection) {
 		   user@~$
 		*/
 		if(connection->commit_author) {
-			fprintf(stdout, "r%u | %s | %s |\n\n", connection->revision, connection->commit_author, connection->commit_date);
-			fprintf(stdout, "%s\n%s\n", connection->commit_msg, deco);
+			fprintf(stdout, "r%u | ", connection->revision);
+			fwrite(connection->commit_author, 1, connection->commit_author_len, stdout);
+			fprintf(stdout, " | ");
+			fwrite(connection->commit_date, 1, connection->commit_date_len, stdout);
+			fprintf(stdout, " |\n\n");
+			fwrite(connection->commit_msg, 1, connection->commit_msg_len, stdout);
+			fprintf(stdout, "\n%s\n", deco);
 		}
 	} else if(connection->job == SVN_INFO) {
 		fprintf(stdout, "Revision: %u\n", connection->revision);
 		if(connection->commit_author) {
-			fprintf(stdout, "Last Changed Author: %s\n", connection->commit_author);
-			fprintf(stdout, "Last Changed Rev: %u\n", connection->revision);
-			fprintf(stdout, "Last Changed Date: %s +0000\n", connection->commit_date);
+			fprintf(stdout, "Last Changed Author: ");
+			fwrite(connection->commit_author, 1, connection->commit_author_len, stdout);
+			fprintf(stdout, "\nLast Changed Rev: %u\nLast Changed Date: ", connection->revision);
+			fwrite(connection->commit_date, 1, connection->commit_date_len, stdout);
+			fprintf(stdout, " +0000\n");
 		}
 	} else {
 		assert(0);
@@ -2528,11 +2547,41 @@ static void save_revision_file(connector *connection, char *svn_version_path) {
 	const char *ps = protocol_to_string(connection->protocol);
 	fprintf(f, "rev=%u\n", connection->revision);
 	fprintf(f, "url=%s://%s/%s\n", ps, connection->address, connection->branch);
-	fprintf(f, "date=%s\n", connection->commit_date ? connection->commit_date : "");
-	fprintf(f, "author=%s\n", connection->commit_author ? connection->commit_author : "");
-	fprintf(f, "log=%s\n", connection->commit_msg ? connection->commit_msg : "");
+	{
+		struct { char **s; size_t l; } fields[3] = {
+			{ &connection->commit_date, connection->commit_date_len },
+			{ &connection->commit_author, connection->commit_author_len },
+			{ &connection->commit_msg, connection->commit_msg_len },
+		};
+		const char *names[3] = { "date=", "author=", "log=" };
+		for (int i = 0; i < 3; i++) {
+			fputs(names[i], f);
+			if (fields[i].s && *fields[i].s) {
+				for (size_t j = 0; j < fields[i].l; j++) {
+					if ((*fields[i].s)[j] == '\0')
+						fputs("\\0", f);
+					else
+						fputc((*fields[i].s)[j], f);
+				}
+			}
+			fputc('\n', f);
+		}
+	}
 	fclose(f);
 	chmod(svn_version_path, 0644);
+}
+
+static size_t decode_nul_escapes(char *s, size_t len) {
+	size_t i, o = 0;
+	for (i = 0; i < len; i++) {
+		if (s[i] == '\\' && i + 1 < len && s[i + 1] == '0') {
+			s[o++] = '\0';
+			i++;
+		} else {
+			s[o++] = s[i];
+		}
+	}
+	return o;
 }
 
 static void read_revision_file(connector *connection, char *svn_version_path) {
@@ -2542,13 +2591,17 @@ static void read_revision_file(connector *connection, char *svn_version_path) {
 	if(!f) errx(EXIT_FAILURE, "couldn't open %s", svn_version_path);
 	while(fgets(buf, sizeof buf, f)) {
 		if(in_log) {
-			size_t l = strlen(connection->commit_msg);
-			connection->commit_msg = realloc(connection->commit_msg, l + 1 + sizeof buf);
+			size_t l = connection->commit_msg_len;
+			char *p = strchr(buf, '\n');
+			size_t blen = p ? (size_t)(p - buf) : strlen(buf);
+			size_t decoded = decode_nul_escapes(buf, blen);
+			connection->commit_msg = realloc(connection->commit_msg, l + 2 + sizeof buf);
 			if(l && connection->commit_msg[l-1] == '\n');
 			else { connection->commit_msg[l] = '\n'; ++l; }
-			char *p = strchr(buf, '\n');
-			if(p) *p = 0;
-			memcpy(connection->commit_msg+l, buf, strlen(buf)+1);
+			memcpy(connection->commit_msg+l, buf, decoded);
+			l += decoded;
+			connection->commit_msg[l] = 0;
+			connection->commit_msg_len = l;
 		} else if(!strncmp(buf, "rev=", 4)) {
 			unsigned rev = atoi(buf+4);
 			if(connection->revision && connection->revision != rev)
@@ -2559,21 +2612,31 @@ static void read_revision_file(connector *connection, char *svn_version_path) {
 			if(!p) errx(EXIT_FAILURE, "malformed file %s", svn_version_path);
 			*p = 0;
 			p = buf + 5;
-			if(*p)
-				connection->commit_date = strdup(p);
+			if(*p) {
+				connection->commit_date_len = decode_nul_escapes(p, strlen(p));
+				connection->commit_date = malloc(connection->commit_date_len + 1);
+				memcpy(connection->commit_date, p, connection->commit_date_len);
+				connection->commit_date[connection->commit_date_len] = 0;
+			}
 		} else if(!strncmp(buf, "author=", 7)) {
 			char *p = strchr(buf+7, '\n');
 			if(!p) errx(EXIT_FAILURE, "malformed file %s", svn_version_path);
 			*p = 0;
 			p = buf+7;
-			if(*p)
-				connection->commit_author = strdup(p);
+			if(*p) {
+				connection->commit_author_len = decode_nul_escapes(p, strlen(p));
+				connection->commit_author = malloc(connection->commit_author_len + 1);
+				memcpy(connection->commit_author, p, connection->commit_author_len);
+				connection->commit_author[connection->commit_author_len] = 0;
+			}
 		} else if(!strncmp(buf, "log=", 4)) {
 			/* log entry may span multiple lines, therefore is last in file */
 			char *p = strchr(buf+4, '\n');
-			if(p) *p = 0;
-			connection->commit_msg = malloc(strlen(buf+4)+1);
-			memcpy(connection->commit_msg, buf+4, strlen(buf+4)+1);
+			size_t blen = p ? (size_t)(p - (buf+4)) : strlen(buf+4);
+			connection->commit_msg = malloc(blen + 1);
+			connection->commit_msg_len = decode_nul_escapes(buf+4, blen);
+			memcpy(connection->commit_msg, buf+4, connection->commit_msg_len);
+			connection->commit_msg[connection->commit_msg_len] = 0;
 			in_log = 1;
 		}
 	}

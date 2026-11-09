@@ -34,7 +34,7 @@ FAIL_FIRST = os.environ.get("MOCK_FAIL_FIRST", "0") == "1"
 _seen_fail = False
 UUID = "00000000-0000-0000-0000-000000000000"
 LOG_MSG = (b"log message with ( unbalanced parens and "
-           b"( 5:fake string ) and a colon: inside\n" * 3)
+           b"( 5:fake string ) and a colon: inside\n" * 2 + b"after\x00NUL\n")
 
 FILES = ({"small.txt": b"hello (world) : keep\n"} if os.environ.get("MOCK_SMALL") else {
     "small.txt": b"hello (world) : keep\n",

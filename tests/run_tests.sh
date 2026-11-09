@@ -24,8 +24,10 @@ if grep -q "Last Changed Author: tester" "$TMP/info"; then ok "info author"; els
 if grep -q "2020-11-10 09:23:51" "$TMP/info"; then ok "info date"; else bad "info date"; fi
 ./svn log "$URL" >"$TMP/log" 2>&1
 if grep -q "log message with ( unbalanced parens" "$TMP/log"; then ok "log message"; else bad "log message"; cat "$TMP/log"; fi
-if test "$(grep -c 'log message with' "$TMP/log")" = 3; then ok "log not truncated"; else bad "log not truncated"; fi
+if test "$(grep -c 'log message with' "$TMP/log")" = 2; then ok "log not truncated"; else bad "log not truncated"; fi
+if grep -q "after" "$TMP/log"; then ok "log with NUL is kept"; else bad "log with NUL is kept"; cat "$TMP/log"; fi
 timeout 20 ./svn checkout "$URL" "$TMP/co" >"$TMP/co.log" 2>&1; rc=$?
+./svn log "$TMP/co" >"$TMP/localinfo" 2>&1; if grep -q "after" "$TMP/localinfo"; then ok "local log survives NUL roundtrip"; else bad "local log survives NUL roundtrip"; cat "$TMP/localinfo"; fi
 if test $rc = 0; then ok "checkout succeeds"; else bad "checkout succeeds"; cat "$TMP/co.log"; fi
 if test -f "$TMP/co/small.txt" && test -f "$TMP/co/space file.txt" && test -f "$TMP/co/colon:name.txt" && test -f "$TMP/co/paren(1).txt" && test -f "$TMP/co/paren(unbalanced.txt"; then ok "special names"; else bad "special names"; find "$TMP/co" -type f; fi
 if test -f "$TMP/co/sub dir/inner (x).txt"; then ok "subdir with space"; else bad "subdir with space"; fi
