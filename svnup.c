@@ -1589,7 +1589,13 @@ process_report_svn(connector *connection, char *command, file_node ***file, int 
 				snprintf(this_file->path, path_length, "%s/%s", path_source, name);
 
 				item_start = strchr(item_start + 1, ' ');
-				this_file->size = strtol(item_start, (char **)NULL, 10);
+				{
+					char *e = NULL;
+					long long sz = strtoll(item_start, &e, 10);
+					if (e == item_start || sz < 0 || sz > (1LL << 31))
+						errx(EXIT_FAILURE, "process_file_entry bad file size");
+					this_file->size = sz;
+				}
 			}
 
 			if (svn_string_eq_lit(marker, 5, " dir ")) {
@@ -2143,6 +2149,8 @@ get_files(connector *connection, char *command, char *path_target, file_node **f
 				file[x]->size = ns;
 			}
 			end += 4;
+			if (file[x]->size < 0 || file[x]->size > (1LL << 31) || raw_size > (1 << 28))
+				errx(EXIT_FAILURE, "get_files bad file size");
 			file[x]->raw_size = file[x]->size + (end - start);
 			start = end + file[x]->size;
 			raw_size += file[x]->raw_size;
