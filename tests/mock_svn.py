@@ -31,6 +31,7 @@ CHUNK = int(os.environ.get("MOCK_CHUNK", "4096"))
 DATE = os.environ.get("MOCK_DATE", "2020-11-10T09:23:51.711212Z").encode()
 REV = "42"
 FAIL_FIRST = os.environ.get("MOCK_FAIL_FIRST", "0") == "1"
+FAIL_CMD = os.environ.get("MOCK_FAIL_CMD", "")
 SPLIT = int(os.environ.get("MOCK_SPLIT", "0"))
 _seen_fail = False
 UUID = "00000000-0000-0000-0000-000000000000"
@@ -188,6 +189,10 @@ def handle(conn):
             # ( command-name params )
             cmd = it[1][0][1].decode()
             params = it[1][1][1] if len(it[1]) > 1 else []
+            if FAIL_CMD and cmd == FAIL_CMD:
+                print("FAILING",cmd,flush=True)
+                sendall(conn, b"( success ( ( ) 0: ) ) ( failure ( ( 160013 " + S("File not found: revision 42") + b" 0: 0 ) ) ) ")
+                continue
             sendall(conn, auth_ok())
             if cmd == "get-latest-rev":
                 sendall(conn, b"( success ( " + REV.encode() + b" ) ) ")
