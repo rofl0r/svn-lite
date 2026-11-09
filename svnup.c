@@ -649,10 +649,24 @@ check_command_success(int protocol, char **start, char **end)
 	char *response = *start;
 
 	if (protocol == SVN) {
-		if (starts_with_lit(*start, "( success ( ( ) 0: ) ) ( failure"))
+		/* The separator between the auth group and the
+		 * next group is a NUL after group scanning, not a
+		 * space, so check for a failure group by finding
+		 * the second top-level item and testing it. */
+		{
+			char *second = *start;
+			char *second_end = find_response_end(protocol, second, *end);
+			if (second_end && second_end < *end) {
+				second = second_end;
+				while (second < *end && (*second == ' ' || *second == '\0'))
+					second++;
+				if (starts_with_lit(second, "( failure"))
+					fail = 1;
+			}
+		}
+		if (!fail && starts_with_lit(*start, "( success ( ( ) 0: ) ) ( failure"))
 			fail = 1;
-
-		else if (starts_with_lit(*start, "( success ( ) ) ( failure"))
+		else if (!fail && starts_with_lit(*start, "( success ( ) ) ( failure"))
 			fail = 1;
 
 		if (!fail) {
