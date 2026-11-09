@@ -52,11 +52,13 @@ FILES = ({"small.txt": b"hello (world) : keep\n"} if os.environ.get("MOCK_SMALL"
 })
 DIRS = ({} if os.environ.get("MOCK_SMALL") else {
     "sub dir": {"inner (x).txt": b"inner\n", "sub.txt": b"sub\n"},
+    "deep": {"deep file.txt": b"deep content\n"},
     "plain": {"a.txt": b"a\n"},
 })
 
 def _all_files():
     out = dict(FILES)
+    out["deep/a/b/c/deep file.txt"] = b"deep content\n"
     for d, fs in DIRS.items():
         for name, data in fs.items():
             out[d + "/" + name] = data
@@ -205,6 +207,14 @@ def handle(conn):
                     for name in sorted(DIRS):
                         entries.append(b"( " + S(name) + b"dir 0 false 0 ( "
                                        + S("1970-01-01T00:00:00.000000Z") + b") ( ) )")
+                elif path in ("deep", "deep/a", "deep/a/b"):
+                    nxt = {"deep": "a", "deep/a": "b", "deep/a/b": "c"}[path]
+                    entries.append(b"( " + S(nxt) + b"dir 0 false 0 ( " + S("1970-01-01T00:00:00.000000Z") + b") ( ) )")
+                elif path == "deep/a/b/c":
+                    for name in sorted(DIRS["deep"]):
+                        entries.append(b"( " + S(name) + b"file "
+                                       + str(len(DIRS["deep"][name])).encode()
+                                       + b" false 0 ( " + S("1970-01-01T00:00:00.000000Z") + b") ( ) )")
                 elif path in DIRS:
                     for name in sorted(DIRS[path]):
                         entries.append(b"( " + S(name) + b"file "

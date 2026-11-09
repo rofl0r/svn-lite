@@ -31,6 +31,7 @@ timeout 20 ./svn checkout "$URL" "$TMP/co" >"$TMP/co.log" 2>&1; rc=$?
 if test $rc = 0; then ok "checkout succeeds"; else bad "checkout succeeds"; cat "$TMP/co.log"; fi
 if test -f "$TMP/co/small.txt" && test -f "$TMP/co/space file.txt" && test -f "$TMP/co/colon:name.txt" && test -f "$TMP/co/paren(1).txt" && test -f "$TMP/co/paren(unbalanced.txt"; then ok "special names"; else bad "special names"; find "$TMP/co" -type f; fi
 if test -f "$TMP/co/sub dir/inner (x).txt"; then ok "subdir with space"; else bad "subdir with space"; fi
+if test -f "$TMP/co/deep/a/b/c/deep file.txt"; then ok "deep nested path"; else bad "deep nested path"; fi
 if test "$(wc -c < "$TMP/co/exact4096.bin")" = 4096; then ok "4096 file"; else bad "4096 file"; fi
 if test "$(wc -c < "$TMP/co/exact8192.bin")" = 8192; then ok "8192 file"; else bad "8192 file"; fi
 if test "$(wc -c < "$TMP/co/big.bin")" = 100000; then ok "100000 file"; else bad "100000 file"; fi
