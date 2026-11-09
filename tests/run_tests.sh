@@ -77,5 +77,9 @@ timeout 30 ./svn checkout "$URL" "$TMP/cosplit" >"$TMP/cosplit.log" 2>&1; rc=$?
 if test $rc = 0 && test "$(cat "$TMP/cosplit/small.txt")" = "hello (world) : keep"; then ok "1 byte split checkout"; else bad "1 byte split checkout"; cat "$TMP/cosplit.log"; fi
 timeout 15 ./svn log "$URL" >"$TMP/splitlog.log" 2>&1; if grep -q "log message with" "$TMP/splitlog.log"; then ok "1 byte split log"; else bad "1 byte split log"; cat "$TMP/splitlog.log"; fi
 stop_mock
+start_mock env MOCK_FAIL_CMD=get-dir
+URL="svn://127.0.0.1:$PORT/mock"
+if timeout 20 ./svn checkout "$URL" "$TMP/cofailresp" >"$TMP/cofailresp.log" 2>&1; then bad "server failure is reported"; else ok "server failure is reported"; fi
+stop_mock
 echo "pass: $PASS fail: $FAIL"
 test "$FAIL" = 0
