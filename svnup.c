@@ -2863,7 +2863,7 @@ main(int argc, char **argv)
 		 * bytes of the auth reply, including its realm. */
 		{
 			char *kind_start = connection.response;
-			char *kind_end;
+			char *kind_end = connection.response + connection.response_length;
 			int kind_ok = 0;
 			/* skip the auth response */
 			if (check_command_success(connection.protocol, &kind_start, &kind_end) == 0) {
