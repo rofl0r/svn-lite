@@ -1917,12 +1917,23 @@ process_report_http(connector *connection, file_node ***file, int *file_count, i
 	start = connection->response;
 	end   = connection->response + connection->response_length;
 
+	/* inline props is a per-file element attribute. Search the
+	 * response string only for a confirmed marker, then use it
+	 * only within each <S:add-file> range below. */
 	char *ip = strstr(start, "inline-props=\"true\">");
 	int has_inline_props = !!(ip && ip < end);
 	connection->inline_props = has_inline_props;
 
-	while ((start = strstr(start, "<S:add-directory")) && (start < end)) {
-		value = parse_xml_value(start, end, "D:href");
+	while (start < end) {
+		char *dir_start = strstr(start, "<S:add-directory");
+		if (!dir_start || dir_start >= end)
+			break;
+		start = dir_start;
+		char *dir_end = strstr(start, "</S:add-directory>");
+		char *value_end = dir_end ? dir_end + LIT_LEN("</S:add-directory>") : end;
+		value = parse_xml_value(start, value_end, "D:href");
+		if (!value)
+			value = parse_xml_value(start, end, "D:href");
 		char *ptmp = strip_rev_root_stub(connection, value);
 		temp = strstr(ptmp, connection->trunk) + strlen(connection->trunk);
 		snprintf(temp_buffer, BUFFER_UNIT, "%s%s", connection->path_target, temp);
