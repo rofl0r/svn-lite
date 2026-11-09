@@ -1,0 +1,7 @@
+*.o
+*.log
+svn
+__pycache__/
+agent*
+debug.log
+err.log
