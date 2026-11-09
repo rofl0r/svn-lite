@@ -81,5 +81,12 @@ start_mock env MOCK_FAIL_CMD=get-dir
 URL="svn://127.0.0.1:$PORT/mock"
 if timeout 20 ./svn checkout "$URL" "$TMP/cofailresp" >"$TMP/cofailresp.log" 2>&1; then bad "server failure is reported"; else ok "server failure is reported"; fi
 stop_mock
+if command -v valgrind >/dev/null 2>&1; then
+    start_mock env
+    URL="svn://127.0.0.1:$PORT/mock"
+    rm -rf "$TMP/vgco"
+    if timeout 30 valgrind --error-exitcode=99 ./svn checkout "$URL" "$TMP/vgco" >"$TMP/vg.log" 2>&1; then ok "valgrind clean"; else bad "valgrind clean"; cat "$TMP/vg.log"; fi
+    stop_mock
+fi
 echo "pass: $PASS fail: $FAIL"
 test "$FAIL" = 0
