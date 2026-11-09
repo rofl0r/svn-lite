@@ -64,6 +64,15 @@
 #define LIT_LEN(S) (sizeof(S)-1)
 #define starts_with_lit(S1, S2) \
 	(strncmp(S1, S2, LIT_LEN(S2)) == 0)
+/* Macro for a C literal: sizeof gives the length without
+ * strlen, and memcmp compares embedded zero bytes. */
+#define svn_string_eq_lit(S, L, LIT) \
+	((L) == LIT_LEN(LIT) && !memcmp((S), (LIT), (L)))
+/* Inline form takes a literal length, so a caller that
+ * already has strlen can pass it and avoid recomputing. */
+static inline int svn_string_eq(const void *s, size_t len, const void *lit, size_t litlen) {
+	return len == litlen && (len == 0 || !memcmp(s, lit, len));
+}
 
 typedef struct {
 	int       socket_descriptor;
@@ -1551,7 +1560,7 @@ process_report_svn(connector *connection, char *command, file_node ***file, int 
 
 			marker = strchr(item_start, ':') + 1 + length;
 
-			if (starts_with_lit(marker, " file ")) {
+			if (svn_string_eq_lit(marker, 6, " file ")) {
 				this_file = new_file_node(file, file_count, file_max);
 
 				name_length = strtol(item_start + 1, (char **)NULL, 10);
@@ -1576,7 +1585,7 @@ process_report_svn(connector *connection, char *command, file_node ***file, int 
 				this_file->size = strtol(item_start, (char **)NULL, 10);
 			}
 
-			if (starts_with_lit(marker, " dir ")) {
+			if (svn_string_eq_lit(marker, 5, " dir ")) {
 				length = strtol(item_start + 1, (char **)NULL, 10);
 				if (length > MAXNAMLEN)
 					errx(EXIT_FAILURE, "process_file file name is too long");
@@ -2030,8 +2039,8 @@ parse_additional_attributes(connector *connection, char *start, char *end, file_
 							char *v = after_name;
 							while (v < entry_end && *v == ' ')
 								v++;
-							fprintf(stderr, "PROP name=%.*s\n", (int)name_len, name_start); int is_exec = (name_len == 14 && !strncmp(name_start, "svn:executable", 14));
-							int is_special = (name_len == 11 && !strncmp(name_start, "svn:special", 11));
+							int is_exec = svn_string_eq(name_start, name_len, "svn:executable", 14);
+							int is_special = svn_string_eq(name_start, name_len, "svn:special", 11);
 							if ((is_exec || is_special) && v < entry_end &&
 							    isdigit((unsigned char)*v)) {
 								char *vq = v;
