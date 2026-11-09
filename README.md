@@ -40,7 +40,7 @@ and no svn server are needed.
 
 # issues / status
 
-The svn protocol parser was rewritten to handle strings split
+Version 1.10. The svn protocol parser was rewritten to handle strings split
 across reads and parentheses inside strings. The mock tests in
 tests/ exercise those paths. Live servers should now work, but
 http remains a good fallback.
