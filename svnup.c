@@ -521,9 +521,19 @@ reset_connection(connector *connection)
 	int             error, option;
 	char            type[10];
 
+	if (connection->ssl) {
+		SSL_free(connection->ssl);
+		connection->ssl = NULL;
+		if (connection->ctx) {
+			SSL_CTX_free(connection->ctx);
+			connection->ctx = NULL;
+		}
+	}
+
 	if (connection->socket_descriptor != -1)
 		if (close(connection->socket_descriptor) != 0)
 			if (errno != EBADF) err(EXIT_FAILURE, "close_connection");
+	connection->socket_descriptor = -1;
 
 	snprintf(type, sizeof(type), "%d", connection->port);
 
