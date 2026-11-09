@@ -46,6 +46,8 @@ FILES = ({"small.txt": b"hello (world) : keep\n"} if os.environ.get("MOCK_SMALL"
     "paren(1).txt": b"paren in name\n",
     "paren(unbalanced.txt": b"unbalanced paren name\n",
     "colon:name.txt": b"colon in name\n",
+    "exec.sh": b"#!/bin/sh\necho hi\n",
+    "link.txt": b"link small.txt",
 })
 DIRS = ({} if os.environ.get("MOCK_SMALL") else {
     "sub dir": {"inner (x).txt": b"inner\n", "sub.txt": b"sub\n"},
@@ -213,8 +215,15 @@ def handle(conn):
                 md5 = hashlib.md5(data).hexdigest().encode()
                 want_props = params[2][1] if len(params) > 2 else b"false"
                 if want_props == b"true":
+                    props = b"( )"
+                    if path == "exec.sh":
+                        props = b"( ( " + S("svn:executable") + b" " + S("*") + b" ) )"
+                    elif path == "link.txt":
+                        props = b"( ( " + S("svn:special") + b" " + S("*") + b" ) )"
+                    elif path == "small.txt":
+                        props = b"( ( " + S("note") + b" " + S("14:svn:executable and 11:svn:special decoy") + b" ) )"
                     conn.sendall(b"( success ( ( " + S(md5) + b") "
-                                 + REV.encode() + b" ( ) ) ) ")
+                                 + REV.encode() + b" " + props + b" ) ) ")
                 else:
                     step = CHUNK if CHUNK > 0 else 4096
                     body = b"( success ( ( " + S(md5) + b") " + REV.encode() + b" ( ) ) ) "

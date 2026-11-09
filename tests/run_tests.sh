@@ -32,13 +32,17 @@ if test -f "$TMP/co/sub dir/inner (x).txt"; then ok "subdir with space"; else ba
 if test "$(wc -c < "$TMP/co/exact4096.bin")" = 4096; then ok "4096 file"; else bad "4096 file"; fi
 if test "$(wc -c < "$TMP/co/exact8192.bin")" = 8192; then ok "8192 file"; else bad "8192 file"; fi
 if test "$(wc -c < "$TMP/co/big.bin")" = 100000; then ok "100000 file"; else bad "100000 file"; fi
+if test -x "$TMP/co/exec.sh"; then ok "executable prop"; else bad "executable prop"; fi
+if test -L "$TMP/co/link.txt"; then ok "special prop symlink"; else bad "special prop symlink"; fi
+if test ! -x "$TMP/co/small.txt"; then ok "decoy prop value not executable"; else bad "decoy prop value not executable"; fi
 if test ! -s "$TMP/co/empty.txt"; then ok "empty file"; else bad "empty file"; fi
 python3 - "$TMP/co" <<'PY'
 import hashlib, os, sys
 root=sys.argv[1]; bad=[]
 for line in open(os.path.join(root,".svnup","known_files")):
     md5,path=line.rstrip("\n").split("\t")
-    if hashlib.md5(open(root+path,"rb").read()).hexdigest()!=md5: bad.append(path)
+    data = b"link small.txt" if os.path.islink(root+path) else open(root+path,"rb").read()
+    if hashlib.md5(data).hexdigest()!=md5: bad.append(path)
 sys.exit(1 if bad else 0)
 PY
 if test $? = 0; then ok "md5 matches"; else bad "md5 matches"; fi

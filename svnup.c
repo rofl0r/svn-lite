@@ -218,13 +218,19 @@ static char* strip_rev_root_stub(connector *connection, char* path) {
 static char*
 md5sum(void *data, size_t dlen, char *out)
 {
-	MD5_CTX       md5_context;
 	unsigned char md5_digest[MD5_DIGEST_LENGTH];
 	size_t i, j;
+	EVP_MD_CTX *md5_context = EVP_MD_CTX_new();
 
-	MD5_Init(&md5_context);
-	MD5_Update(&md5_context, data, dlen);
-	MD5_Final(md5_digest, &md5_context);
+	if (!md5_context)
+		err(EXIT_FAILURE, "md5sum EVP_MD_CTX_new");
+	if (EVP_DigestInit_ex(md5_context, EVP_md5(), NULL) != 1)
+		err(EXIT_FAILURE, "md5sum EVP_DigestInit_ex");
+	if (EVP_DigestUpdate(md5_context, data, dlen) != 1)
+		err(EXIT_FAILURE, "md5sum EVP_DigestUpdate");
+	if (EVP_DigestFinal_ex(md5_context, md5_digest, NULL) != 1)
+		err(EXIT_FAILURE, "md5sum EVP_DigestFinal_ex");
+	EVP_MD_CTX_free(md5_context);
 
 	for (i = 0, j = 0; i < MD5_DIGEST_LENGTH; i++, j+=2)
 		sprintf(out+j, "%02x", md5_digest[i]);
@@ -1997,9 +2003,9 @@ parse_additional_attributes(connector *connection, char *start, char *end, file_
 					return;
 				char *entry = scan + 1;
 				while (entry < props_end) {
-					while (entry < props_end && (*entry == ' ' || *entry == '('))
+					while (entry < props_end && *entry != '(')
 						entry++;
-					if (entry >= props_end || *entry == ')')
+					if (entry >= props_end)
 						break;
 					char *entry_end = svn_item_end(entry, props_end);
 					if (!entry_end)
@@ -2024,7 +2030,7 @@ parse_additional_attributes(connector *connection, char *start, char *end, file_
 							char *v = after_name;
 							while (v < entry_end && *v == ' ')
 								v++;
-							int is_exec = (name_len == 14 && !strncmp(name_start, "svn:executable", 14));
+							fprintf(stderr, "PROP name=%.*s\n", (int)name_len, name_start); int is_exec = (name_len == 14 && !strncmp(name_start, "svn:executable", 14));
 							int is_special = (name_len == 11 && !strncmp(name_start, "svn:special", 11));
 							if ((is_exec || is_special) && v < entry_end &&
 							    isdigit((unsigned char)*v)) {
