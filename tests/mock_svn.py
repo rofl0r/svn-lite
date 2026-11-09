@@ -30,6 +30,8 @@ import threading
 CHUNK = int(os.environ.get("MOCK_CHUNK", "4096"))
 DATE = os.environ.get("MOCK_DATE", "2020-11-10T09:23:51.711212Z").encode()
 REV = "42"
+FAIL_FIRST = os.environ.get("MOCK_FAIL_FIRST", "0") == "1"
+_seen_fail = False
 UUID = "00000000-0000-0000-0000-000000000000"
 LOG_MSG = (b"log message with ( unbalanced parens and "
            b"( 5:fake string ) and a colon: inside\n" * 3)
@@ -201,6 +203,11 @@ def handle(conn):
                 conn.sendall(b"( success ( " + REV.encode() + b" ( ) ( "
                              + b" ".join(entries) + b" ) ) ) ")
             elif cmd == "get-file":
+                if FAIL_FIRST and not globals().get('_seen_fail'):
+                    globals()['_seen_fail'] = True
+                    conn.sendall(b'( success ( ( ) 0: ) ) partial')
+                    conn.close()
+                    return
                 path = params[0][1].decode().lstrip("/")
                 data = _all_files().get(path, b"")
                 md5 = hashlib.md5(data).hexdigest().encode()

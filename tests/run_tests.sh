@@ -55,5 +55,14 @@ URL="svn://127.0.0.1:$PORT/mock"
 timeout 20 ./svn checkout "$URL" "$TMP/co100" >"$TMP/co100.log" 2>&1; rc=$?
 if test $rc = 0 && test "$(wc -c < "$TMP/co100/big.bin")" = 100000; then ok "100 byte chunk checkout"; else bad "100 byte chunk checkout"; cat "$TMP/co100.log"; fi
 stop_mock
+start_mock env MOCK_FAIL_FIRST=1
+URL="svn://127.0.0.1:$PORT/mock"
+if timeout 15 ./svn checkout "$URL" "$TMP/cofail" >"$TMP/cofail.log" 2>&1; then bad "dropped connection fails cleanly"; else ok "dropped connection fails cleanly"; fi
+stop_mock
+start_mock env
+URL="svn://127.0.0.1:$PORT/mock"
+timeout 20 ./svn checkout "$URL" "$TMP/cofail2" >"$TMP/cofail2.log" 2>&1; rc=$?
+if test $rc = 0 && test -f "$TMP/cofail2/small.txt"; then ok "clean checkout after dropped connection"; else bad "clean checkout after dropped connection"; cat "$TMP/cofail2.log"; fi
+stop_mock
 echo "pass: $PASS fail: $FAIL"
 test "$FAIL" = 0

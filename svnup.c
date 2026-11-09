@@ -678,10 +678,9 @@ process_command_svn(connector *connection, const char *command, unsigned int exp
 {
 	ssize_t       bytes_read;
 	int           ok;
-	unsigned int  position, try;
+	unsigned int  position;
 	char         *check, input[BUFFER_UNIT + 1];
 
-	try = 0;
 retry:
 
 	send_command(connection, command);
@@ -697,12 +696,10 @@ retry:
 		if (bytes_read <= 0) {
 			if (bytes_read < 0 && (errno == EINTR || errno == 0))
 				continue;
-			if (++try > 5)
-				errx(EXIT_FAILURE, "Error in svn stream.  Quitting.");
-			if (try > 1)
-				fprintf(stderr, "Error in svn stream, retry #%d\n", try);
-			/* Re-sending a command after a partial read would
-			 * append a second response to the first one. */
+			/* A zero read is EOF, and any other error is
+			 * fatal after bytes have been received for this
+			 * response. Resending would append a second
+			 * response to the first one. */
 			errx(EXIT_FAILURE, "Error in svn stream.  Quitting.");
 		}
 
