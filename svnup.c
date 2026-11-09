@@ -1476,7 +1476,7 @@ process_report_svn(connector *connection, char *command, file_node ***file, int 
 	char        *path_source, *start, *temp;
 	stringlist *buffered_commands = stringlist_new(16);
 
-	path_source = malloc(MAXNAMLEN + 1);
+	path_source = malloc(COMMAND_BUFFER + 1);
 
 	try = -1;
 
@@ -1507,6 +1507,8 @@ process_report_svn(connector *connection, char *command, file_node ***file, int 
 			temp = colon + 1;
 			directory_start = temp + length;
 		}
+		if (length > MAXNAMLEN)
+			errx(EXIT_FAILURE, "process_report_svn path is too long");
 		if (length > 0)
 			memcpy(path_source, temp, length);
 
@@ -1581,12 +1583,13 @@ process_report_svn(connector *connection, char *command, file_node ***file, int 
 
 				char *temp_path = malloc(BUFFER_UNIT+1);
 
-				snprintf(temp_path,
+				if (snprintf(temp_path,
 					BUFFER_UNIT,
 					"%s%s/%s",
 					connection->path_target,
 					path_source,
-					name);
+					name) >= BUFFER_UNIT)
+					errx(EXIT_FAILURE, "process_report_svn path is too long");
 
 				/* Create the directory locally if it doesn't exist. */
 
@@ -1615,13 +1618,14 @@ process_report_svn(connector *connection, char *command, file_node ***file, int 
 				length += path_source_length + 1;
 
 				char* next_command = malloc(BUFFER_UNIT+1);
-				snprintf(next_command,
+				if (snprintf(next_command,
 					BUFFER_UNIT,
 					"( get-dir ( %zd:%s/%s ( %d ) false true ( kind size ) false ) )\n",
 					length,
 					path_source,
 					name,
-					connection->revision);
+					connection->revision) >= BUFFER_UNIT)
+					errx(EXIT_FAILURE, "process_report_svn command is too long");
 
 				stringlist_add_dup(buffered_commands, next_command);
 				free(next_command);
