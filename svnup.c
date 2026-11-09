@@ -1145,19 +1145,38 @@ parse_xml_value(char *start, char *end, const char *tag)
 		err(EXIT_FAILURE, "parse_xml_value end_tag malloc");
 
 	snprintf(end_tag, tag_length, "</%s>", tag);
-
-	if ((data_start = strstr(start, tag))) {
-		if ((data_start = strchr(data_start, '>'))) {
-			data_start++;
+	/* Search for "<tag" (with a following '>') rather than the
+	 * bare tag bytes. A bare search also matches attribute
+	 * values and text, and strchr to '>' can return a pointer
+	 * well past the tag or beyond end. Check every returned
+	 * pointer against end before dereferencing it. */
+	{
+		char *scan = start;
+		while ((scan = strstr(scan, tag)) && scan < end) {
+			if (scan > start && scan[-1] != '<')
+				{ scan++; continue; }
+			char *gt;
+			if (scan + strlen(tag) >= end)
+				break;
+			gt = strchr(scan, '>');
+			if (!gt || gt >= end) {
+				scan++;
+				continue;
+			}
+			/* gt must be the '>' of this opening tag. */
+			if (gt != scan + strlen(tag)) {
+				scan = gt + 1;
+				continue;
+			}
+			data_start = gt + 1;
 			data_end = strstr(data_start, end_tag);
-
-			if (data_end) {
+			if (data_end && data_end < end) {
 				if ((value = (char *)malloc(data_end - data_start + 1)) == NULL)
 					err(EXIT_FAILURE, "parse_xml_value value malloc");
-
 				memcpy(value, data_start, data_end - data_start);
 				value[data_end - data_start] = '\0';
 			}
+			break;
 		}
 	}
 
@@ -1898,7 +1917,8 @@ process_report_http(connector *connection, file_node ***file, int *file_count, i
 	start = connection->response;
 	end   = connection->response + connection->response_length;
 
-	int has_inline_props = !!strstr(start, "inline-props=\"true\">");
+	char *ip = strstr(start, "inline-props=\"true\">");
+	int has_inline_props = !!(ip && ip < end);
 	connection->inline_props = has_inline_props;
 
 	while ((start = strstr(start, "<S:add-directory")) && (start < end)) {
