@@ -2080,8 +2080,15 @@ parse_additional_attributes(connector *connection, char *start, char *end, file_
 		file->size = strtol(value, (char **)NULL, 10);
 		free(value);
 
-		file->executable = (strstr(start, "<S:executable/>") ? 1 : 0);
-		file->special    = (strstr(start, "<S:special>*</S:special>") ? 1 : 0);
+		{
+			char *q;
+			file->executable = 0;
+			file->special = 0;
+			if ((q = strstr(start, "<S:executable/>")) && q < end)
+				file->executable = 1;
+			if ((q = strstr(start, "<S:special>*</S:special>")) && q < end)
+				file->special = 1;
+		}
 	}
 }
 
