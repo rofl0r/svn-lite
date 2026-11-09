@@ -103,10 +103,6 @@ typedef struct {
 	char      inline_props;
 	int       stop_at_done;
 	int       stop_at_file_end;
-	char     *pending;
-	size_t    pending_len;
-	char     *pending_raw;
-	size_t    pending_raw_len;
 } connector;
 
 
@@ -693,72 +689,7 @@ retry:
 	position = ok = 0;
 	connection->response_length = 0;
 
-	/* If a previous call read bytes belonging to a later
-	 * response, use them first. They were saved raw, so
-	 * NUL marking in the previous call cannot corrupt
-	 * them. */
-	if (connection->pending_len) {
-		size_t needed = connection->pending_len + BUFFER_UNIT;
-		if (needed >= connection->response_blocks * BUFFER_UNIT) {
-			while (needed >= connection->response_blocks * BUFFER_UNIT)
-				connection->response_blocks += connection->response_blocks / 2 + 1;
-			connection->response = realloc(connection->response, connection->response_blocks * BUFFER_UNIT + 1);
-			if (!connection->response)
-				err(EXIT_FAILURE, "process_command_svn pending realloc");
-		}
-		memcpy(connection->response, connection->pending, connection->pending_len);
-		position = (unsigned int)connection->pending_len;
-		connection->response_length = position;
-		connection->response[position] = '\0';
-		free(connection->pending);
-		connection->pending = NULL;
-		connection->pending_len = 0;
-		/* No socket read has been done yet for this call.
-		 * The loop below will try to read more, which is
-		 * correct: the pending bytes were already the
-		 * start of this response, and the server will
-		 * send the rest after the command we just sent
-		 * only for later responses, so we must not block
-		 * if the pending bytes already complete this
-		 * response. The completion check below runs
-		 * before the first socket read. */
-	}
-
 	do {
-		/* If pending bytes already complete this
-		 * response, do not block on the socket. */
-		if (position > 0 && (expected_bytes == 0 || expected_bytes == (unsigned int)-1)) {
-			int pre_groups = 0;
-			int pre_done = 0;
-			int pre_files = 0;
-			int pre_seen_string = 0;
-			char *s = connection->response;
-			char *s_end = connection->response + position;
-			while (s < s_end) {
-				while (s < s_end && *s == ' ')
-					s++;
-				if (s >= s_end) break;
-				char *n = svn_item_end(s, s_end);
-				if (!n) break;
-				if (expected_bytes == (unsigned int)-1) {
-					if (*s == '(' && pre_seen_string) { pre_files++; pre_seen_string = 0; }
-					else if (*s != '(') pre_seen_string = 1;
-				} else {
-					if (connection->stop_at_done && n - s == 4 && memcmp(s, "done", 4) == 0)
-						pre_done = 1;
-					else if (pre_done && *s == '(')
-						pre_groups++;
-					else if (!(pre_done && *s == '('))
-						pre_groups++;
-				}
-				s = n;
-			}
-			if (expected_bytes == (unsigned int)-1 && pre_files >= connection->stop_at_file_end && connection->stop_at_file_end > 0)
-				ok = 1;
-			if (expected_bytes == 0 && ((pre_groups >= connection->response_groups && connection->response_groups > 0) || (connection->stop_at_done && pre_done && pre_groups >= 3)))
-				ok = 1;
-			if (ok) break;
-		}
 		bzero(input, BUFFER_UNIT + 1);
 
 		bytes_read = read(connection->socket_descriptor, input, BUFFER_UNIT);
@@ -911,62 +842,6 @@ retry:
 
 	if ((expected_bytes == 0) && (connection->verbosity > 2))
 		fprintf(stdout, "==========\n>> Response:\n%s", connection->response);
-
-	/* Save any bytes after the completed response. */
-	{
-		char *scan = connection->response;
-		char *scan_end = connection->response + position;
-		char *consumed = scan_end;
-		if (expected_bytes == 0 || expected_bytes == (unsigned int)-1) {
-			unsigned int want = connection->response_groups;
-			unsigned int got = 0;
-			int seen_done = 0, seen_string = 0;
-			unsigned int files_done = 0;
-			while (scan < scan_end) {
-				while (scan < scan_end && (*scan == ' ' || *scan == '\0'))
-					scan++;
-				if (scan >= scan_end) break;
-				char *next = svn_item_end(scan, scan_end);
-				if (!next) break;
-				if (expected_bytes == (unsigned int)-1) {
-					if (*scan == '(' && seen_string) { files_done++; seen_string = 0; }
-					else if (*scan != '(') seen_string = 1;
-					consumed = next; scan = next;
-					if (files_done >= (unsigned int)connection->stop_at_file_end && connection->stop_at_file_end > 0)
-						break;
-				} else {
-					if (connection->stop_at_done && next - scan == 4 && memcmp(scan, "done", 4) == 0)
-						seen_done = 1;
-					else if (seen_done && *scan == '(')
-						got++;
-					else
-						got++;
-					consumed = next; scan = next;
-					if (got >= want && want > 0)
-						break;
-					if (connection->stop_at_done && seen_done && got >= 3)
-						break;
-				}
-			}
-		} else if (position > expected_bytes) {
-			consumed = connection->response + expected_bytes;
-		}
-		if (consumed < scan_end) {
-			char *pend = consumed;
-			if (pend < scan_end && (*pend == ' ' || *pend == '\0'))
-				pend++;
-			while (pend < scan_end && (*pend == ' ' || *pend == '\0'))
-				pend++;
-			if (pend < scan_end) {
-				size_t left = (size_t)(scan_end - pend);
-				connection->pending = malloc(left);
-				if (!connection->pending)
-					err(EXIT_FAILURE, "process_command_svn pending malloc");
-				memcpy(connection->pending, pend, left);
-				connection->pending_len = left;
-			}
-		}
-	}
 
 	connection->response[position] = '\0';
 
