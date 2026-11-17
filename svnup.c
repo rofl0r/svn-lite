@@ -1,6 +1,6 @@
 /*-
  * Copyright (c) 2012-2019, John Mehr <jmehr@umn.edu>
- * Copyright (c) 2021 rofl0r
+ * Copyright (c) 2021-2026 rofl0r
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -56,7 +56,7 @@
 
 #include "stringlist.h"
 
-#define SVNUP_VERSION "1.10"
+#define SVNUP_VERSION "1.11"
 #define BUFFER_UNIT 4096
 #define COMMAND_BUFFER 32768
 #define COMMAND_BUFFER_THRESHOLD 32000

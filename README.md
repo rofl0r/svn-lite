@@ -40,11 +40,9 @@ and no svn server are needed.
 
 # issues / status
 
-Version 1.10. The svn protocol parser was rewritten to handle strings split
-across reads and parentheses inside strings. The mock tests in
-tests/ exercise those paths. Live servers should now work, but
-http remains a good fallback.
-on the plus side, svn-lite is a *lot* faster than the official svn
-client, which is especially important when using the svn2git.sh utility
-to convert a repo to git.
+Version 1.09 had some bugs parsing the svn protocol, fixed since 1.10.
+http(s) protocol worked well already back then and still does.
 
+svn-lite is a *lot* faster than the official svn client, which is
+especially important when using the svn2git.sh utility
+to convert a repo to git.
